@@ -1,0 +1,32 @@
+[project]
+name = "smartdocs"
+version = "0.1.0"
+description = "SmartDocs - 企业/团队文档的智能问答系统"
+authors = [
+    {name = "Admin", email = "admin@admin.com"}
+]
+dependencies = [
+    "django>=4.2.0",
+    "django-ninja>=1.0.0",
+    "django-cors-headers>=4.0.0",
+    "psycopg2-binary>=2.9.6",
+    "langchain>=0.0.267",
+    "faiss-cpu>=1.7.4",
+    "PyPDF2>=3.0.0",
+    "python-docx>=0.8.11",
+    "tiktoken>=0.4.0",
+    "pyjwt>=2.8.0",
+    "dashscope>=1.10.0",
+    "openai>=0.28.0",
+    "pydantic>=1.10.0",
+    "python-multipart>=0.0.5",  # 用于文件上传
+    "numpy>=1.24.0",  # FAISS依赖
+]
+requires-python = ">=3.9"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 100

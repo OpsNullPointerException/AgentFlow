@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: smartdocs_postgres
+    environment:
+      - POSTGRES_DB=smartdocs
+      - POSTGRES_USER=smartdocs
+      - POSTGRES_PASSWORD=smartdocspass
+    ports:
+      - "5432:5432"  # 使用默认PostgreSQL端口
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
