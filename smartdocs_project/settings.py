@@ -9,9 +9,14 @@ https://docs.djangoproject.com/en/4.2/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/4.2/ref/settings/
 """
-
 from pathlib import Path
 from datetime import timedelta
+import os
+from dotenv import load_dotenv
+
+# 加载.env文件中的环境变量,强制重新加载
+load_dotenv(override=True)
+
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -21,10 +26,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = "django-insecure-$m!b2btq33)l7@6lyhw^vc=x^(@6v9wfo=8@o25=o6@e%-2b!@"
+SECRET_KEY = os.environ.get("SECRET_KEY", "django-insecure-$m!b2btq33)l7@6lyhw^vc=x^(@6v9wfo=8@o25=o6@e%-2b!@")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.environ.get("DEBUG", "True").lower() == "true"
 
 ALLOWED_HOSTS = []
 
@@ -92,15 +97,16 @@ WSGI_APPLICATION = "smartdocs_project.wsgi.application"
 
 DATABASES = {
     "default": {
-        "ENGINE": "psqlextra.backend",  # 使用psqlextra后端，它支持psycopg3
-        "NAME": "smartdocs",
-        "USER": "smartdocs",
-        "PASSWORD": "smartdocspass",
-        "HOST": "localhost",
-        "PORT": "5432",
+        "ENGINE": "django.db.backends.postgresql",  # 使用标准PostgreSQL后端
+        "NAME": os.environ.get("DB_NAME", "smartdocs"),
+        "USER": os.environ.get("DB_USER", "smartdocs"),
+        "PASSWORD": os.environ.get("DB_PASSWORD", "smartdocspass"),
+        "HOST": os.environ.get("DB_HOST", "localhost"),
+        "PORT": os.environ.get("DB_PORT", "5432"),
         "CONN_MAX_AGE": 600,  # 连接持久化时间（秒）
     }
 }
+print("使用PostgreSQL数据库")
 
 
 # Password validation
@@ -143,6 +149,20 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 # 媒体文件配置
 MEDIA_URL = "media/"
 MEDIA_ROOT = BASE_DIR / "media"
+
+# 文件上传配置
+MAX_UPLOAD_SIZE = int(os.environ.get("MAX_UPLOAD_SIZE", 10 * 1024 * 1024))  # 默认10MB
+
+# 千问API配置
+QWEN_API_KEY = os.environ.get("QWEN_API_KEY", "")
+DASHSCOPE_API_KEY = os.environ.get("DASHSCOPE_API_KEY", "")
+
+# 向量库配置
+VECTOR_STORE_PATH = os.environ.get("VECTOR_STORE_PATH", str(BASE_DIR / "vector_store"))
+
+# 确保向量库目录存在
+import os
+os.makedirs(VECTOR_STORE_PATH, exist_ok=True)
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field

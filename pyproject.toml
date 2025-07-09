@@ -17,6 +17,7 @@ dependencies = [
     "tiktoken>=0.4.0",
     "pyjwt>=2.8.0",
     "dashscope>=1.10.0",
+    "python-dotenv>=1.0.0",  # 用于从.env文件加载环境变量
     "openai>=0.28.0",
     "pydantic>=1.10.0",
     "python-multipart>=0.0.5",  # 用于文件上传
@@ -30,3 +31,16 @@ build-backend = "hatchling.build"
 
 [tool.ruff]
 line-length = 100
+
+[tool.hatch.build.targets.wheel]
+packages = ["accounts", "documents", "qa", "smartdocs_project", "common"]
+
+[tool.hatch.build]
+include = [
+    "accounts/**/*.py",
+    "documents/**/*.py",
+    "qa/**/*.py",
+    "smartdocs_project/**/*.py",
+    "common/**/*.py",
+    "manage.py",
+]
