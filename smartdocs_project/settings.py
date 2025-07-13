@@ -157,6 +157,10 @@ MAX_UPLOAD_SIZE = int(os.environ.get("MAX_UPLOAD_SIZE", 10 * 1024 * 1024))  # �
 QWEN_API_KEY = os.environ.get("QWEN_API_KEY", "")
 DASHSCOPE_API_KEY = os.environ.get("DASHSCOPE_API_KEY", "")
 
+# 嵌入模型配置
+EMBEDDING_MODEL_VERSION = os.environ.get("EMBEDDING_MODEL_VERSION", "text-embedding-v4")
+EMBEDDING_MODEL_DIMENSIONS = 1024
+
 # 向量库配置
 VECTOR_STORE_PATH = os.environ.get("VECTOR_STORE_PATH", str(BASE_DIR / "vector_store"))
 

@@ -16,12 +16,24 @@ logger = logging.getLogger(__name__)
 class VectorDBService:
     """向量数据库服务，用于存储和检索文档向量"""
     
-    def __init__(self):
-        self.embedding_service = EmbeddingService()
+    def __init__(self, embedding_model_version=None):
+        """
+        初始化向量数据库服务
+        
+        Args:
+            embedding_model_version: 嵌入模型版本，如果未指定则使用settings中的配置
+        """
+        # 记录使用的嵌入模型版本
+        self.embedding_model_version = embedding_model_version or settings.EMBEDDING_MODEL_VERSION
+        logger.info(f"初始化VectorDBService，使用嵌入模型: {self.embedding_model_version}")
+        
+        # 初始化嵌入服务，传递模型版本
+        self.embedding_service = EmbeddingService(embedding_model_version=self.embedding_model_version)
+        
         self.vector_store_path = settings.VECTOR_STORE_PATH
         self.index_file = os.path.join(self.vector_store_path, "faiss_index.bin")
         self.mapping_file = os.path.join(self.vector_store_path, "chunk_mapping.pkl")
-        self.vector_dim = 1024  # 向量维度
+        self.vector_dim = settings.EMBEDDING_MODEL_DIMENSIONS  # 使用配置中的向量维度
         
         # 确保向量库目录存在
         Path(self.vector_store_path).mkdir(parents=True, exist_ok=True)
@@ -176,6 +188,8 @@ class VectorDBService:
             
             # 获取检索结果
             results = []
+            version_mismatch_count = 0  # 跟踪模型版本不匹配的块数量
+            
             for i, idx in enumerate(indices[0]):  # indices是二维数组，取第一个结果
                 if idx < 0:  # faiss在结果不足时会返回-1
                     continue
@@ -185,8 +199,18 @@ class VectorDBService:
                     continue
                     
                 try:
-                    chunk = DocumentChunk.objects.select_related('document_id').get(id=chunk_id)
+                    # 不使用select_related，因为document_id是整数字段而非关系字段
+                    chunk = DocumentChunk.objects.get(id=chunk_id)
                     document = Document.objects.get(id=chunk.document_id)
+                    
+                    # 检查嵌入模型版本兼容性
+                    chunk_model_version = chunk.embedding_model_version
+                    if chunk_model_version and chunk_model_version != self.embedding_model_version:
+                        version_mismatch_count += 1
+                        logger.warning(
+                            f"模型版本不匹配: 块{chunk_id}使用{chunk_model_version}创建，"
+                            f"但当前搜索使用{self.embedding_model_version}"
+                        )
                     
                     results.append({
                         'id': document.id,
@@ -194,11 +218,19 @@ class VectorDBService:
                         'chunk_index': chunk.chunk_index,
                         'content': chunk.content,
                         'score': float(1.0 / (1.0 + distances[0][i])),  # 将距离转换为相似度分数
-                        'chunk_id': chunk_id
+                        'chunk_id': chunk_id,
+                        'embedding_model_version': chunk_model_version or "unknown"
                     })
                 except (DocumentChunk.DoesNotExist, Document.DoesNotExist):
                     # 如果文档块或文档不存在，可能是已被删除
                     continue
+            
+            # 如果有模型版本不匹配，记录警告
+            if version_mismatch_count > 0:
+                logger.warning(
+                    f"检测到{version_mismatch_count}个结果使用了不同的嵌入模型版本，"
+                    f"这可能会影响搜索准确性。考虑使用相同的模型版本或重建索引。"
+                )
             
             return results
             
@@ -207,7 +239,20 @@ class VectorDBService:
             return []
     
     @staticmethod
-    def search_static(query: str, top_k: int = 5) -> List[Dict[str, Any]]:
-        """静态方法版本，适用于简单调用"""
-        service = VectorDBService()
+    def search_static(query: str, top_k: int = 5, embedding_model_version=None) -> List[Dict[str, Any]]:
+        """
+        静态方法版本，适用于简单调用
+        
+        Args:
+            query: 查询文本
+            top_k: 返回的最相关结果数量
+            embedding_model_version: 嵌入模型版本，如果未指定则使用settings中的配置
+        
+        Returns:
+            相关文档列表，每个结果包含embedding_model_version字段
+        """
+        # 记录使用的模型版本
+        used_version = embedding_model_version or settings.EMBEDDING_MODEL_VERSION
+        logger.info(f"使用静态搜索方法，嵌入模型版本: {used_version}")
+        service = VectorDBService(embedding_model_version=embedding_model_version)
         return service.search(query, top_k)

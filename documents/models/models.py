@@ -33,6 +33,9 @@ class Document(models.Model):
     status = models.CharField('处理状态', max_length=20, choices=STATUS_CHOICES, default='pending')
     error_message = models.TextField('错误信息', blank=True, null=True)
     
+    # 存储处理文档时使用的嵌入模型版本
+    embedding_model_version = models.CharField('嵌入模型版本', max_length=50, null=True, blank=True)
+    
     created_at = models.DateTimeField('创建时间', auto_now_add=True)
     updated_at = models.DateTimeField('更新时间', auto_now=True)
     
@@ -51,6 +54,9 @@ class DocumentChunk(models.Model):
     content = models.TextField('内容')
     chunk_index = models.IntegerField('块索引')
     vector_id = models.CharField('向量ID', max_length=255, blank=True, null=True)
+    
+    # 存储块向量化时使用的嵌入模型版本
+    embedding_model_version = models.CharField('嵌入模型版本', max_length=50, null=True, blank=True)
     
     class Meta:
         verbose_name = '文档块'

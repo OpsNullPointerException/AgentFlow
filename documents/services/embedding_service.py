@@ -10,7 +10,13 @@ logger = logging.getLogger(__name__)
 class EmbeddingService:
     """向量嵌入服务，负责文本向量化"""
 
-    def __init__(self):
+    def __init__(self, embedding_model_version=None):
+        """
+        初始化向量嵌入服务
+        
+        Args:
+            embedding_model_version: 嵌入模型版本，如果未指定则使用settings中的配置
+        """
         # 设置DashScope API密钥
         self.api_key = settings.DASHSCOPE_API_KEY
         if not self.api_key:
@@ -19,13 +25,17 @@ class EmbeddingService:
             # 设置环境变量，用于OpenAI客户端
             os.environ["DASHSCOPE_API_KEY"] = self.api_key
         
+        # 设置嵌入模型版本和维度
+        self.embedding_model_version = embedding_model_version or settings.EMBEDDING_MODEL_VERSION
+        self.vector_dim = settings.EMBEDDING_MODEL_DIMENSIONS
+        
+        logger.info(f"初始化EmbeddingService，使用模型: {self.embedding_model_version}")
+        
         # 创建OpenAI客户端（使用DashScope兼容模式）
         self.client = OpenAI(
             api_key=self.api_key,
             base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"
         )
-        # 向量嵌入维度
-        self.vector_dim = 1024
 
     def get_embedding(self, text: str) -> np.ndarray:
         """获取文本的向量表示"""
@@ -36,9 +46,9 @@ class EmbeddingService:
 
         try:
             # 使用OpenAI兼容模式调用DashScope API获取嵌入向量
-            logger.info(f"使用OpenAI兼容模式调用DashScope API，密钥: {self.api_key[:5]}***")
+            logger.info(f"使用模型 {self.embedding_model_version} 获取嵌入向量，API密钥: {self.api_key[:5]}***")
             response = self.client.embeddings.create(
-                model="text-embedding-v4",
+                model=self.embedding_model_version,
                 input=text,
                 dimensions=self.vector_dim,
                 encoding_format="float"

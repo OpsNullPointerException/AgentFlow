@@ -10,8 +10,15 @@ logger = logging.getLogger(__name__)
 class QAService:
     """问答服务，负责处理用户问题并生成回答"""
     
-    def __init__(self):
-        self.rag_service = RAGService()
+    def __init__(self, embedding_model_version=None):
+        """
+        初始化问答服务
+        
+        Args:
+            embedding_model_version: 嵌入模型版本，如果未指定则使用settings中的配置
+        """
+        self.embedding_model_version = embedding_model_version
+        self.rag_service = RAGService(embedding_model_version=embedding_model_version)
         self.llm_service = LLMService()
         
     def process_query(self, conversation_id: int, query: str, user_id: int) -> Dict[str, Any]:
