@@ -21,6 +21,7 @@ class VectorDBService:
     # 单例模式相关变量（使用字典存储不同模型版本的实例）
     _instances = {}
     _instance_lock = threading.Lock()
+    _initialized_lock = threading.Lock()
     _is_initialized = {}  # 使用字典跟踪每个模型版本是否已预加载
     
     def __init__(self, embedding_model_version=None):
@@ -261,7 +262,7 @@ class VectorDBService:
         
         # 对指定版本的模型使用单例模式
         if model_version not in cls._instances:
-            with cls._instance_lock:
+            with cls._initialized_lock:
                 if model_version not in cls._instances:
                     logger.info(f"创建VectorDBService实例(模型版本: {model_version})")
                     cls._instances[model_version] = cls(embedding_model_version=model_version)
