@@ -1,4 +1,3 @@
-from ninja import Router
 from qa.controllers import router
 
 # 导出路由器，将被项目的urls.py文件导入

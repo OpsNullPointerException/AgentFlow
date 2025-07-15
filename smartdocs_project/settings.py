@@ -165,7 +165,7 @@ EMBEDDING_MODEL_DIMENSIONS = 1024
 VECTOR_STORE_PATH = os.environ.get("VECTOR_STORE_PATH", str(BASE_DIR / "vector_store"))
 
 # 确保向量库目录存在
-import os
+
 os.makedirs(VECTOR_STORE_PATH, exist_ok=True)
 
 # Default primary key field type
