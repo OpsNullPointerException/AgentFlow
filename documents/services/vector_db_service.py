@@ -7,6 +7,8 @@ from django.conf import settings
 import pickle
 from pathlib import Path
 import gc  # 添加垃圾回收模块
+import threading
+import time
 
 from ..models import Document, DocumentChunk
 from .embedding_service import EmbeddingService
@@ -15,6 +17,11 @@ from .embedding_service import EmbeddingService
 
 class VectorDBService:
     """向量数据库服务，用于存储和检索文档向量"""
+    
+    # 单例模式相关变量（使用字典存储不同模型版本的实例）
+    _instances = {}
+    _instance_lock = threading.Lock()
+    _is_initialized = {}  # 使用字典跟踪每个模型版本是否已预加载
     
     def __init__(self, embedding_model_version=None):
         """
@@ -238,10 +245,82 @@ class VectorDBService:
             logger.exception(f"搜索失败: {str(e)}")
             return []
     
+    @classmethod
+    def get_instance(cls, embedding_model_version=None) -> 'VectorDBService':
+        """
+        获取VectorDBService的单例实例
+        
+        Args:
+            embedding_model_version: 嵌入模型版本，如果未指定则使用settings中的配置
+            
+        Returns:
+            VectorDBService实例
+        """
+        # 标准化嵌入模型版本，确保有一个确定的值
+        model_version = embedding_model_version or settings.EMBEDDING_MODEL_VERSION
+        
+        # 对指定版本的模型使用单例模式
+        if model_version not in cls._instances:
+            with cls._instance_lock:
+                if model_version not in cls._instances:
+                    logger.info(f"创建VectorDBService实例(模型版本: {model_version})")
+                    cls._instances[model_version] = cls(embedding_model_version=model_version)
+        
+        return cls._instances[model_version]
+    
+    @classmethod
+    def preload_index(cls, embedding_model_version=None) -> None:
+        """
+        预加载索引到内存中
+        
+        Args:
+            embedding_model_version: 嵌入模型版本，如果未指定则使用settings中的配置
+        """
+        model_version = embedding_model_version or settings.EMBEDDING_MODEL_VERSION
+        
+        if model_version not in cls._is_initialized or not cls._is_initialized.get(model_version):
+            with cls._instance_lock:
+                if model_version not in cls._is_initialized or not cls._is_initialized.get(model_version):
+                    start_time = time.time()
+                    logger.info(f"开始预加载向量索引(模型版本: {model_version})...")
+                    instance = cls.get_instance(model_version)
+                    duration = time.time() - start_time
+                    logger.info(f"向量索引预加载完成，包含{instance.index.ntotal}个向量，耗时{duration:.2f}秒")
+                    cls._is_initialized[model_version] = True
+                else:
+                    logger.info(f"向量索引(模型版本: {model_version})已经预加载过，跳过")
+        else:
+            logger.info(f"向量索引(模型版本: {model_version})已经预加载过，跳过")
+    
+    @classmethod
+    def preload_index_async(cls, embedding_model_version=None) -> None:
+        """
+        在后台线程中异步预加载索引
+        
+        Args:
+            embedding_model_version: 嵌入模型版本，如果未指定则使用settings中的配置
+        """
+        model_version = embedding_model_version or settings.EMBEDDING_MODEL_VERSION
+        
+        def _preload_task():
+            try:
+                cls.preload_index(model_version)
+            except Exception as e:
+                logger.error(f"预加载索引时发生错误(模型版本: {model_version}): {str(e)}")
+                # 发生错误时，标记为未初始化，允许下次尝试
+                with cls._instance_lock:
+                    if model_version in cls._is_initialized:
+                        cls._is_initialized[model_version] = False
+        
+        logger.info(f"启动后台线程预加载向量索引(模型版本: {model_version})...")
+        thread = threading.Thread(target=_preload_task, daemon=True)
+        thread.name = f"FAISS-Preloader-{model_version}"
+        thread.start()
+    
     @staticmethod
     def search_static(query: str, top_k: int = 5, embedding_model_version=None) -> List[Dict[str, Any]]:
         """
-        静态方法版本，适用于简单调用
+        静态方法版本，适用于简单调用，使用单例实例提高性能
         
         Args:
             query: 查询文本
@@ -254,5 +333,7 @@ class VectorDBService:
         # 记录使用的模型版本
         used_version = embedding_model_version or settings.EMBEDDING_MODEL_VERSION
         logger.info(f"使用静态搜索方法，嵌入模型版本: {used_version}")
-        service = VectorDBService(embedding_model_version=embedding_model_version)
+        
+        # 使用单例实例而不是每次创建新实例
+        service = VectorDBService.get_instance(embedding_model_version)
         return service.search(query, top_k)
