@@ -3,13 +3,13 @@ import gc
 import PyPDF2
 import docx
 from typing import List, Generator
-import logging
+from loguru import logger
 
 from django.conf import settings
 from ..models import Document, DocumentChunk
 from .vector_db_service import VectorDBService
 
-logger = logging.getLogger(__name__)
+# loguru不需要getLogger
 
 
 class DocumentProcessor:

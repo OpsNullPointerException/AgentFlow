@@ -1,9 +1,9 @@
 from typing import List, Dict, Any
-import logging
+from loguru import logger
 
 from documents.services.vector_db_service import VectorDBService
 
-logger = logging.getLogger(__name__)
+# loguru不需要getLogger
 
 class RAGService:
     """检索增强生成服务，负责文档检索和上下文处理"""

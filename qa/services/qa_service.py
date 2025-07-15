@@ -1,11 +1,11 @@
-import logging
+from loguru import logger
 from typing import List, Dict, Any, Optional
 
 from ..models import Conversation, Message, MessageDocumentReference
 from .rag_service import RAGService
 from .llm_service import LLMService
 
-logger = logging.getLogger(__name__)
+# loguru不需要getLogger
 
 class QAService:
     """问答服务，负责处理用户问题并生成回答"""

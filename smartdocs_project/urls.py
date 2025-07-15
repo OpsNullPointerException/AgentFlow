@@ -14,6 +14,8 @@ Including another URLconf
     1. Import the include() function: from django.urls import include, path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
+
+from typing import Optional
 from django.contrib import admin
 from django.urls import path
 from django.conf import settings
@@ -23,13 +25,14 @@ from ninja.security import HttpBearer
 from django.contrib.auth.models import User
 import jwt
 from datetime import datetime, timedelta
-
+from loguru import logger
 from accounts.controllers import router as accounts_router, public_router as accounts_public_router
 from documents.api import router as documents_router
 from qa.api import router as qa_router
 
+
 class JWTAuth(HttpBearer):
-    def authenticate(self, request, token):
+    def authenticate(self, request, token) -> Optional[User]:
         # 在实际应用中，应该验证JWT并返回用户对象
         # 这里为了演示，我们做一个简化的验证
         try:
@@ -37,20 +40,19 @@ class JWTAuth(HttpBearer):
             # payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
             # user_id = payload.get("user_id")
             # return User.objects.get(id=user_id)
-            
+
             # 简化版，仅用于演示
             if token == "mock_access_token":
                 return User.objects.first()  # 返回第一个用户作为演示
             return None
-        except:
+        except Exception as e:
+            logger.error(f"JWT验证失败: {e}")
             return None
+
 
 # 创建API实例
 api = NinjaAPI(
-    title="SmartDocs API",
-    version="1.0.0",
-    description="智能文档问答平台API",
-    auth=JWTAuth()
+    title="SmartDocs API", version="1.0.0", description="智能文档问答平台API", auth=JWTAuth()
 )
 
 # 注册需要认证的路由器
@@ -64,16 +66,16 @@ public_api = NinjaAPI(
     version="1.0.0",
     description="智能文档问答平台公开API",
     auth=None,
-    urls_namespace="public_api"
+    urls_namespace="public_api",
 )
 
 # 注册公开路由器
 public_api.add_router("/accounts/", accounts_public_router)
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
-    path('api/', api.urls),
-    path('public-api/', public_api.urls, name="public_api"),
+    path("admin/", admin.site.urls),
+    path("api/", api.urls),
+    path("public-api/", public_api.urls, name="public_api"),
 ]
 
 # 添加媒体文件的服务

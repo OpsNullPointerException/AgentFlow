@@ -1,10 +1,10 @@
 import numpy as np
-import logging
+from loguru import logger
 import os
 from django.conf import settings
 from openai import OpenAI
 
-logger = logging.getLogger(__name__)
+# loguru不需要getLogger
 
 
 class EmbeddingService:

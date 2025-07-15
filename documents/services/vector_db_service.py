@@ -2,7 +2,7 @@ import os
 import numpy as np
 import faiss
 from typing import List, Dict, Any
-import logging
+from loguru import logger
 from django.conf import settings
 import pickle
 from pathlib import Path
@@ -11,7 +11,7 @@ import gc  # 添加垃圾回收模块
 from ..models import Document, DocumentChunk
 from .embedding_service import EmbeddingService
 
-logger = logging.getLogger(__name__)
+# loguru不需要getLogger
 
 class VectorDBService:
     """向量数据库服务，用于存储和检索文档向量"""

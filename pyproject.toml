@@ -17,11 +17,12 @@ dependencies = [
     "tiktoken>=0.4.0",
     "pyjwt>=2.8.0",
     "dashscope>=1.10.0",
-    "python-dotenv>=1.0.0",  # 用于从.env文件加载环境变量
+    "python-dotenv>=1.0.0", # 用于从.env文件加载环境变量
     "openai>=0.28.0",
     "pydantic>=1.10.0",
-    "python-multipart>=0.0.5",  # 用于文件上传
-    "numpy>=1.24.0",  # FAISS依赖
+    "python-multipart>=0.0.5", # 用于文件上传
+    "numpy>=1.24.0", # FAISS依赖
+    "loguru>=0.7.3",
 ]
 requires-python = ">=3.9"
 

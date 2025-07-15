@@ -1,10 +1,10 @@
-import logging
+from loguru import logger
 from typing import List, Dict, Any
 from django.conf import settings
 import dashscope
 from dashscope.aigc.generation import Generation
 
-logger = logging.getLogger(__name__)
+# loguru不需要getLogger
 
 class LLMService:
     """大语言模型服务，负责与LLM API交互"""
