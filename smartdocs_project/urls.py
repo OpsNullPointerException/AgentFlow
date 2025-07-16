@@ -17,9 +17,10 @@ Including another URLconf
 
 from typing import Optional
 from django.contrib import admin
-from django.urls import path
+from django.urls import path, re_path
 from django.conf import settings
 from django.conf.urls.static import static
+from django.views.generic import TemplateView
 from ninja import NinjaAPI
 from ninja.security import HttpBearer
 from django.contrib.auth.models import User
@@ -76,6 +77,10 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/", api.urls),
     path("public-api/", public_api.urls, name="public_api"),
+    
+    # 将前端静态文件的index.html作为默认页面
+    # 这个路由必须放在最后，作为通配符路由
+    re_path(r"^(?!admin/|api/|public-api/|static/|media/).*", TemplateView.as_view(template_name="index.html")),
 ]
 
 # 添加媒体文件的服务

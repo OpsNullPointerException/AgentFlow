@@ -15,27 +15,27 @@ from documents.models import Document
 @router.get("/conversations", response=List[ConversationOut])
 def list_conversations(request):
     """获取当前用户的所有对话"""
-    return Conversation.objects.filter(user=request.auth)
+    return Conversation.objects.filter(user_id=request.auth.id)
 
 @router.post("/conversations", response=ConversationOut)
 def create_conversation(request, data: ConversationIn):
     """创建新对话"""
     conversation = Conversation.objects.create(
         title=data.title,
-        user=request.auth
+        user_id=request.auth.id
     )
     return conversation
 
 @router.get("/conversations/{conversation_id}", response=ConversationDetailOut)
 def get_conversation(request, conversation_id: int):
     """获取对话详情，包括所有消息"""
-    conversation = get_object_or_404(Conversation, id=conversation_id, user=request.auth)
+    conversation = get_object_or_404(Conversation, id=conversation_id, user_id=request.auth.id)
     return conversation
 
 @router.post("/conversations/{conversation_id}/messages", response=MessageOut)
 def create_message(request, conversation_id: int, data: MessageIn):
     """向对话中添加新消息并获取回复"""
-    conversation = get_object_or_404(Conversation, id=conversation_id, user=request.auth)
+    conversation = get_object_or_404(Conversation, id=conversation_id, user_id=request.auth.id)
     
     # 创建用户消息
     user_message = Message.objects.create(
@@ -59,7 +59,7 @@ def create_message(request, conversation_id: int, data: MessageIn):
         )
         
         # 模拟添加文档引用（实际应用中应该是基于RAG检索结果）
-        documents = Document.objects.filter(owner=request.auth)[:2]  # 仅用于演示
+        documents = Document.objects.filter(owner_id=request.auth.id)[:2]  # 仅用于演示
         for i, doc in enumerate(documents):
             MessageDocumentReference.objects.create(
                 message=assistant_message,
@@ -76,6 +76,6 @@ def create_message(request, conversation_id: int, data: MessageIn):
 @router.delete("/conversations/{conversation_id}")
 def delete_conversation(request, conversation_id: int):
     """删除对话"""
-    conversation = get_object_or_404(Conversation, id=conversation_id, user=request.auth)
+    conversation = get_object_or_404(Conversation, id=conversation_id, user_id=request.auth.id)
     conversation.delete()
     return {"success": True}

@@ -40,12 +40,12 @@ router = Router(tags=["documents"])
 @router.get("/", response=List[DocumentOut])
 def list_documents(request):
     """获取当前用户的所有文档"""
-    return Document.objects.filter(owner=request.auth)
+    return Document.objects.filter(owner_id=request.auth.id)
 
 @router.get("/{document_id}", response=DocumentDetailOut)
 def get_document(request, document_id: int):
     """获取文档详情，包括文档块"""
-    document = get_object_or_404(Document, id=document_id, owner=request.auth)
+    document = get_object_or_404(Document, id=document_id, owner_id=request.auth.id)
     return document
 
 @router.post("/", response=DocumentOut)
@@ -66,7 +66,7 @@ def create_document(request, document_in: DocumentIn, file: UploadedFile = File(
         description=document_in.description,
         file=file,
         file_type=file_type,
-        owner=request.auth,
+        owner_id=request.auth.id,
         status='pending'
     )
     
@@ -78,7 +78,7 @@ def create_document(request, document_in: DocumentIn, file: UploadedFile = File(
 @router.delete("/{document_id}")
 def delete_document(request, document_id: int):
     """删除文档"""
-    document = get_object_or_404(Document, id=document_id, owner=request.auth)
+    document = get_object_or_404(Document, id=document_id, owner_id=request.auth.id)
     
     # 删除文档
     document.delete()
