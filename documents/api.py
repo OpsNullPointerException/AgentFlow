@@ -6,6 +6,7 @@ from django.contrib.auth.models import User
 from datetime import datetime
 
 from .models import Document, DocumentChunk
+from .services.vector_db_service import VectorDBService
 
 # 定义Schema
 class DocumentIn(Schema):
@@ -78,5 +79,11 @@ def create_document(request, document_in: DocumentIn, file: UploadedFile = File(
 def delete_document(request, document_id: int):
     """删除文档"""
     document = get_object_or_404(Document, id=document_id, owner=request.auth)
+    
+    # 删除文档
     document.delete()
+    
+    # 清除所有向量搜索缓存，因为删除文档会影响搜索结果
+    VectorDBService.clear_search_cache()
+    
     return {"success": True}

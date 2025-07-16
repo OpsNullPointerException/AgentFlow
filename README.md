@@ -111,9 +111,54 @@ python manage.py runserver
 
 ### 问答系统
 
-- `POST /api/qa/ask/` - 提问
-- `GET /api/qa/conversations/` - 获取对话列表
-- `GET /api/qa/conversations/{id}/` - 获取对话详情
+#### 对话管理接口
+
+- `GET /api/qa/conversations/` - 获取当前用户的所有对话
+  - 响应：对话列表，包含ID、标题、创建时间和更新时间
+
+- `POST /api/qa/conversations/` - 创建新对话
+  - 请求参数：`{ "title": "对话标题" }`
+  - 响应：创建的对话信息
+
+- `GET /api/qa/conversations/{conversation_id}/` - 获取对话详情
+  - 响应：对话信息，包含所有消息历史
+
+- `POST /api/qa/conversations/{conversation_id}/messages/` - 向对话中添加新消息并获取AI回复
+  - 请求参数：`{ "content": "用户消息内容" }`
+  - 响应：AI助手回复消息，包含内容和引用的文档信息
+
+- `DELETE /api/qa/conversations/{conversation_id}/` - 删除对话
+  - 响应：`{ "success": true }`
+
+#### 文档检索接口
+
+- `POST /api/qa/retrieve/` - 基于查询文本检索相关文档
+  - 请求参数：
+    ```json
+    {
+      "query": "查询文本",
+      "top_k": 5,                      // 可选，返回结果数量，默认5
+      "embedding_model_version": null  // 可选，使用的嵌入模型版本
+    }
+    ```
+  - 响应：
+    ```json
+    {
+      "results": [                     // 检索结果列表
+        {
+          "id": 123,                   // 文档ID
+          "title": "文档标题",
+          "content": "匹配的文本片段",
+          "score": 0.95,               // 相关性分数
+          "chunk_index": 2,            // 文档块索引
+          "embedding_model_version": "text-embedding-v4"
+        }
+      ],
+      "total": 1,                      // 结果总数
+      "query": "查询文本",             // 原始查询
+      "search_time": 0.123             // 搜索耗时(秒)
+    }
+    ```
 
 ### 用户管理
 

@@ -72,7 +72,10 @@ class DocumentProcessor:
             if indexing_result:
                 document.status = "processed"
                 document.save()
-                logger.info(f"文档{document_id}处理完成")
+                
+                # 清除所有向量搜索缓存，因为新文档可能影响搜索结果
+                VectorDBService.clear_search_cache()
+                logger.info(f"文档{document_id}处理完成，已清除搜索缓存")
                 return True
             else:
                 document.status = "failed"

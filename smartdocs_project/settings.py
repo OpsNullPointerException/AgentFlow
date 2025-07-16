@@ -168,6 +168,34 @@ VECTOR_STORE_PATH = os.environ.get("VECTOR_STORE_PATH", str(BASE_DIR / "vector_s
 
 os.makedirs(VECTOR_STORE_PATH, exist_ok=True)
 
+# Redis配置
+REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.environ.get("REDIS_PORT", "6379"))
+REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD", "smartdocsredis")
+REDIS_DB = int(os.environ.get("REDIS_DB", "0"))
+
+# Django缓存配置 - 使用Redis作为缓存后端
+CACHES = {
+    "default": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}",
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            "PASSWORD": REDIS_PASSWORD,
+            "SOCKET_CONNECT_TIMEOUT": 5,  # 连接超时时间(秒)
+            "SOCKET_TIMEOUT": 5,          # 读写超时时间(秒)
+            "COMPRESSOR": "django_redis.compressors.zlib.ZlibCompressor",  # 启用zlib压缩
+            "IGNORE_EXCEPTIONS": True,    # 忽略Redis连接错误，避免影响网站可用性
+        },
+        "KEY_PREFIX": "smartdocs",       # 缓存键前缀，避免与其他应用冲突
+        "TIMEOUT": 60 * 60 * 24 * 7,     # 默认缓存过期时间(7天)
+    }
+}
+
+# 使用Redis作为会话后端
+SESSION_ENGINE = "django.contrib.sessions.backends.cache"
+SESSION_CACHE_ALIAS = "default"
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
 

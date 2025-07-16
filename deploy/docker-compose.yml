@@ -14,5 +14,21 @@ services:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
 
+  redis:
+    image: redis:7-alpine
+    container_name: smartdocs_redis
+    command: redis-server --appendonly yes --requirepass smartdocsredis
+    ports:
+      - "6379:6379"  # 标准Redis端口
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "smartdocsredis", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
 volumes:
   postgres_data:
+  redis_data:
