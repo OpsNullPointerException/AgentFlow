@@ -41,6 +41,7 @@ const app = createApp({
         const selectedModel = ref('qwen-turbo');  // 默认使用更快的模型
         const newConversationDialogVisible = ref(false);
         const newConversationTitle = ref('');
+        const userScrolling = ref(false);  // 用户是否正在手动滚动查看历史消息
         
         // 可用的模型选项
         const modelOptions = [
@@ -101,10 +102,16 @@ const app = createApp({
                     // 加载对话和文档
                     loadConversations();
                     loadDocuments();
+                    
+                    // 设置滚动监听
+                    setupScrollListener();
                 } catch (error) {
                     console.error('获取用户信息失败', error);
                     handleLogout();
                 }
+            } else {
+                // 设置滚动监听（即使未登录，为了防止登录后需要再次设置）
+                setupScrollListener();
             }
         });
         
@@ -271,7 +278,8 @@ const app = createApp({
                     };
                     console.log("设置选中对话:", selectedConversation.value);
                     
-                    // 滚动到底部
+                    // 重置滚动状态并滚动到底部
+                    userScrolling.value = false;
                     await nextTick();
                     scrollToBottom();
                 } catch (error) {
@@ -364,8 +372,82 @@ const app = createApp({
         const scrollToBottom = async () => {
             await nextTick();
             const container = document.querySelector('.messages-container');
-            if (container) {
+            // 只有当用户不是主动滚动时，才自动滚动到底部
+            // 流式消息生成过程中，尊重用户的滚动选择
+            if (container && !userScrolling.value) {
                 container.scrollTop = container.scrollHeight;
+            }
+        };
+        
+        // 重置滚动状态（在流式消息结束时调用）
+        // 智能重置滚动状态
+        const resetScrollState = (forceReset = false) => {
+            // 只有在强制重置或用户已经在底部时才重置滚动状态
+            const container = document.querySelector('.messages-container');
+            if (forceReset || (container && container.scrollHeight - container.scrollTop - container.clientHeight < 20)) {
+                userScrolling.value = false;
+                nextTick(() => scrollToBottom());
+            }
+            // 否则保持用户当前的滚动位置，不打断阅读
+        };
+        
+        // 监听消息容器的滚动事件（增强版）
+        const setupScrollListener = () => {
+            const container = document.querySelector('.messages-container');
+            if (container) {
+                // 上次滚动时间，用于实现滚动防抖
+                let lastScrollTime = 0;
+                // 初始滚动位置
+                let lastScrollTop = 0;
+                // 上次内容高度
+                let lastScrollHeight = 0;
+                
+                container.addEventListener('scroll', () => {
+                    // 计算是否接近底部（距离底部20px以内）
+                    const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 20;
+                    
+                    // 记录当前时间
+                    const now = Date.now();
+                    
+                    // 检测是否是由内容增加导致的自动滚动
+                    // 如果内容高度增加了，但滚动位置与上次相对于底部的位置相近，则不认为是用户滚动
+                    const heightDelta = container.scrollHeight - lastScrollHeight;
+                    const expectedScrollTop = lastScrollTop + heightDelta;
+                    const isAutoScroll = heightDelta > 0 && Math.abs(container.scrollTop - expectedScrollTop) < 5;
+                    
+                    // 如果接近底部，认为用户想看最新消息，重置滚动状态
+                    if (isNearBottom) {
+                        userScrolling.value = false;
+                    } else if (now - lastScrollTime > 100 && !isAutoScroll) {
+                        // 只有当滚动动作间隔超过100ms时，并且不是由内容增加导致的自动滚动，才认为是用户主动滚动
+                        userScrolling.value = true;
+                    }
+                    
+                    // 更新记录
+                    lastScrollTime = now;
+                    lastScrollTop = container.scrollTop;
+                    lastScrollHeight = container.scrollHeight;
+                });
+                
+                // 当用户开始手动滚动时记录
+                container.addEventListener('mousedown', () => {
+                    // 用户按下鼠标，可能准备滚动
+                    userScrolling.value = true;
+                });
+                
+                // 触摸开始时也记录用户滚动意图
+                container.addEventListener('touchstart', () => {
+                    userScrolling.value = true;
+                });
+                
+                // 键盘上下键滚动也记录为用户主动滚动
+                container.addEventListener('keydown', (e) => {
+                    if (e.key === 'ArrowUp' || e.key === 'ArrowDown' ||
+                        e.key === 'PageUp' || e.key === 'PageDown' ||
+                        e.key === 'Home' || e.key === 'End') {
+                        userScrolling.value = true;
+                    }
+                });
             }
         };
         
@@ -431,7 +513,7 @@ const app = createApp({
                 // 添加助手回复
                 messages.value.push(response.data);
                 
-                // 滚动到底部
+                // 只有在用户未手动滚动时才滚动到底部
                 scrollToBottom();
                 
                 // 更新对话列表
@@ -478,8 +560,10 @@ const app = createApp({
                 messages.value.push(assistantMessage);
                 currentStreamingMessage.value = assistantMessage;
                 
-                // 滚动到底部
-                scrollToBottom();
+                // 只在用户未手动滚动时滚动到底部
+                if (!userScrolling.value) {
+                    scrollToBottom();
+                }
                 
                 // 更新对话列表
                 updateConversationList();
@@ -540,9 +624,23 @@ const app = createApp({
                                 currentStreamingMessage.value = updatedMessage;
                             }
                             
-                            // 滚动到底部
+                            // 智能滚动处理
                             nextTick(() => {
-                                scrollToBottom();
+                                const container = document.querySelector('.messages-container');
+                                if (container) {
+                                    // 检测是否用户已经滚动到离底部很远的位置
+                                    const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+                                    
+                                    // 如果用户已经滚动到离底部很远的位置(超过200px)，不自动滚动
+                                    // 这样可以让用户继续阅读上文而不被打断
+                                    if (distanceToBottom > 200) {
+                                        // 不滚动，保持用户当前位置
+                                    }
+                                    // 如果用户处于底部或接近底部，或者没有主动滚动，则滚动到底部
+                                    else if (!userScrolling.value || distanceToBottom < 20) {
+                                        scrollToBottom();
+                                    }
+                                }
                             });
                         }
                         
@@ -550,6 +648,7 @@ const app = createApp({
                         if (data.finished) {
                             eventSource.close();
                             sendingMessage.value = false;
+                            resetScrollState(false); // 消息流结束时智能处理滚动状态，不强制重置
                             currentStreamingMessage.value = null;
                             console.log("流式传输完成");
                         }
@@ -560,12 +659,14 @@ const app = createApp({
                             ElementPlus.ElMessage.error(`生成回复出错: ${data.error_message}`);
                             eventSource.close();
                             sendingMessage.value = false;
+                            resetScrollState(false); // 错误情况下智能处理滚动状态，不强制重置
                             currentStreamingMessage.value = null;
                         }
                     } catch (err) {
                         console.error("解析流式数据出错:", err);
                         eventSource.close();
                         sendingMessage.value = false;
+                        resetScrollState(false); // 解析出错时智能处理滚动状态，不强制重置
                     }
                 };
                 
@@ -575,6 +676,7 @@ const app = createApp({
                     ElementPlus.ElMessage.error('流式连接出错');
                     eventSource.close();
                     sendingMessage.value = false;
+                    resetScrollState(false); // 连接错误时智能处理滚动状态，不强制重置
                     currentStreamingMessage.value = null;
                 };
                 
