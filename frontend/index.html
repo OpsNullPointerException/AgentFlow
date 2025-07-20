@@ -149,6 +149,8 @@
     <!-- 引入Element Plus (本地资源) -->
     <link rel="stylesheet" href="{% static 'static/css/element-plus.min.css' %}">
     <script src="{% static 'static/js/element-plus.full.min.js' %}"></script>
+    <!-- 引入marked.js用于Markdown渲染 -->
+    <script src="{% static 'static/js/marked.min.js' %}"></script>
 </head>
 
 <body>
@@ -245,7 +247,8 @@
                                     </div>
                                     <div class="delete-btn">
                                         <el-tooltip content="删除会话" placement="top">
-                                            <el-button size="mini" type="danger" @click.stop="deleteConversation(conv.id)" class="close-btn">
+                                            <el-button size="mini" type="danger"
+                                                @click.stop="deleteConversation(conv.id)" class="close-btn">
                                                 ×
                                             </el-button>
                                         </el-tooltip>
@@ -284,7 +287,7 @@
                             <div v-for="message in messages" :key="message.id"
                                 :class="['message', message.message_type === 'user' ? 'user-message' : 'assistant-message', currentStreamingMessage === message ? 'streaming' : '']">
                                 <div class="message-content">
-                                    <div class="message-text">{{ message.content }}</div>
+                                    <div class="message-text" v-html="renderMarkdown(message.content)"></div>
                                     <div class="message-footer">
                                         <div class="message-time">{{ formatDate(message.created_at) }}</div>
                                         <div v-if="message.model" class="message-model">模型: {{ message.model }}</div>

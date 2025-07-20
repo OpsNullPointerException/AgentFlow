@@ -714,6 +714,18 @@ const app = createApp({
             }
         };
         
+        // Markdown渲染函数
+        const renderMarkdown = (text) => {
+            if (!text) return '';
+            try {
+                // 使用marked库将Markdown转换为HTML
+                return marked.parse(text);
+            } catch (error) {
+                console.error('Markdown渲染错误:', error);
+                return text; // 如果渲染失败，返回原始文本
+            }
+        };
+        
         return {
             isLoggedIn,
             userInfo,
@@ -754,7 +766,8 @@ const app = createApp({
             uploadDocument,
             searchDocuments,
             handleMessageKeydown,
-            formatDate
+            formatDate,
+            renderMarkdown     // 新增：Markdown渲染函数
         };
     }
 });
