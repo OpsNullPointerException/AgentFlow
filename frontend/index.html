@@ -126,15 +126,13 @@
             background-color: #1890ff;
         }
     </style>
-    <!-- 引入Vue.js -->
-    <script src="https://cdn.jsdelivr.net/npm/vue@3.3.4/dist/vue.global.js"></script>
-    <!-- 引入Axios -->
-    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
-    <!-- 引入Element Plus -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/element-plus@2.3.7/dist/index.css">
-    <script src="https://cdn.jsdelivr.net/npm/element-plus@2.3.7/dist/index.full.js"></script>
-    <!-- 引入图标库 -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.2.1/css/all.min.css">
+    <!-- 引入Vue.js (本地资源) -->
+    <script src="{% static 'static/js/vue.global.prod.js' %}"></script>
+    <!-- 引入Axios (本地资源) -->
+    <script src="{% static 'static/js/axios.min.js' %}"></script>
+    <!-- 引入Element Plus (本地资源) -->
+    <link rel="stylesheet" href="{% static 'static/css/element-plus.min.css' %}">
+    <script src="{% static 'static/js/element-plus.full.min.js' %}"></script>
 </head>
 <body>
     {% verbatim %}
@@ -246,7 +244,7 @@
                     <div class="sidebar-section">
                         <div class="section-header">
                             <h3>我的对话</h3>
-                            <el-button size="small" @click="createNewConversation" type="primary" icon="el-icon-plus">新对话</el-button>
+                            <el-button size="small" @click.native="createNewConversation" type="primary" icon="el-icon-plus">新对话</el-button>
                         </div>
                         <ul class="conversation-list">
                             <li v-for="conv in conversations" :key="conv.id" 
@@ -265,7 +263,7 @@
                     <div class="sidebar-section">
                         <div class="section-header">
                             <h3>我的文档</h3>
-                            <el-button size="small" @click="openUploadDialog" type="primary" icon="el-icon-upload">上传</el-button>
+                            <el-button size="small" @click.native="openUploadDialog" type="primary" icon="el-icon-upload">上传</el-button>
                         </div>
                         <ul class="document-list">
                             <li v-for="doc in documents" :key="doc.id">
@@ -306,9 +304,9 @@
                         </div>
                         
                         <div class="input-area">
-                            <el-input v-model="newMessage" type="textarea" :rows="3" 
+                            <el-input v-model="newMessage" type="textarea" :rows="3"
                                       placeholder="输入您的问题..." @keyup.ctrl.enter="sendMessage"></el-input>
-                            <el-button type="primary" @click="sendMessage" :loading="sendingMessage">发送</el-button>
+                            <el-button type="primary" @click.native="sendMessage" :loading="sendingMessage">发送</el-button>
                         </div>
                     </div>
                     
@@ -362,17 +360,17 @@
                         <div slot="tip" class="el-upload__tip">只能上传PDF/DOCX/TXT文件，且不超过10MB</div>
                     </el-upload>
                 </el-form-item>
-                <el-button type="primary" native-type="submit" :loading="uploading">上传</el-button>
+                <el-button type="primary" @click="uploadDocument" :loading="uploading">上传</el-button>
             </el-form>
         </el-dialog>
         
         <!-- 新建对话对话框 -->
         <el-dialog title="新建对话" v-model="newConversationDialogVisible" width="400px">
-            <el-form @submit.prevent="submitNewConversation">
+            <el-form>
                 <el-form-item label="对话标题">
                     <el-input v-model="newConversationTitle" placeholder="请输入对话标题"></el-input>
                 </el-form-item>
-                <el-button type="primary" native-type="submit">创建</el-button>
+                <el-button type="primary" @click="submitNewConversation">创建</el-button>
             </el-form>
         </el-dialog>
     </div>

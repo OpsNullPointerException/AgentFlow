@@ -9,6 +9,7 @@ https://docs.djangoproject.com/en/4.2/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/4.2/ref/settings/
 """
+
 from pathlib import Path
 from datetime import timedelta
 import os
@@ -26,7 +27,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get("SECRET_KEY", "django-insecure-$m!b2btq33)l7@6lyhw^vc=x^(@6v9wfo=8@o25=o6@e%-2b!@")
+SECRET_KEY = os.environ.get(
+    "SECRET_KEY", "django-insecure-$m!b2btq33)l7@6lyhw^vc=x^(@6v9wfo=8@o25=o6@e%-2b!@"
+)
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get("DEBUG", "True").lower() == "true"
@@ -50,6 +53,9 @@ INSTALLED_APPS = [
     "documents",
     "qa",
 ]
+
+# 禁用URL末尾斜杠自动添加，以兼容前端API请求
+# APPEND_SLASH = False
 
 # Django Ninja 设置
 NINJA_JWT = {
@@ -76,7 +82,7 @@ ROOT_URLCONF = "smartdocs_project.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [os.path.join(BASE_DIR, 'frontend')],
+        "DIRS": [os.path.join(BASE_DIR, "frontend")],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -144,9 +150,9 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/4.2/howto/static-files/
 
 STATIC_ROOT = BASE_DIR / "staticfiles"
-STATIC_URL = '/static/'
+STATIC_URL = "/static/"
 STATICFILES_DIRS = [
-    os.path.join(BASE_DIR, 'frontend'),
+    os.path.join(BASE_DIR, "frontend"),
 ]
 # 媒体文件配置
 MEDIA_URL = "media/"
@@ -173,7 +179,7 @@ os.makedirs(VECTOR_STORE_PATH, exist_ok=True)
 # Redis配置
 REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.environ.get("REDIS_PORT", "6379"))
-REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD", "smartdocsredis")
+# REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD", "smartdocsredis")
 REDIS_DB = int(os.environ.get("REDIS_DB", "0"))
 
 # Django缓存配置 - 使用Redis作为缓存后端
@@ -183,14 +189,14 @@ CACHES = {
         "LOCATION": f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}",
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
-            "PASSWORD": REDIS_PASSWORD,
+            # "PASSWORD": REDIS_PASSWORD,
             "SOCKET_CONNECT_TIMEOUT": 5,  # 连接超时时间(秒)
-            "SOCKET_TIMEOUT": 5,          # 读写超时时间(秒)
+            "SOCKET_TIMEOUT": 5,  # 读写超时时间(秒)
             "COMPRESSOR": "django_redis.compressors.zlib.ZlibCompressor",  # 启用zlib压缩
-            "IGNORE_EXCEPTIONS": True,    # 忽略Redis连接错误，避免影响网站可用性
+            "IGNORE_EXCEPTIONS": True,  # 忽略Redis连接错误，避免影响网站可用性
         },
-        "KEY_PREFIX": "smartdocs",       # 缓存键前缀，避免与其他应用冲突
-        "TIMEOUT": 60 * 60 * 24 * 7,     # 默认缓存过期时间(7天)
+        "KEY_PREFIX": "smartdocs",  # 缓存键前缀，避免与其他应用冲突
+        "TIMEOUT": 60 * 60 * 24 * 7,  # 默认缓存过期时间(7天)
     }
 }
 

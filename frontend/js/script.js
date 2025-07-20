@@ -227,7 +227,7 @@ const app = createApp({
                 return true;
             } catch (error) {
                 console.error('获取文档列表失败', error);
-                console.error('请求URL:', '/api/documents/');
+                console.error('请求URL:', '/api/documents');
                 console.error('错误状态:', error.response?.status);
                 console.error('错误详情:', error.response?.data);
                 ElementPlus.ElMessage.error('获取文档列表失败: ' + (error.response?.data?.detail || error.message));
@@ -237,28 +237,52 @@ const app = createApp({
         
         // 选择对话
         const selectConversation = async (conversation) => {
-            selectedConversation.value = conversation;
-            try {
-                console.log("获取对话详情，ID:", conversation.id);
-                const response = await http.get(`/api/qa/conversations/${conversation.id}`); // 移除末尾斜杠
-                messages.value = response.data.messages;
-                
-                // 滚动到底部
-                await nextTick();
-                const container = document.querySelector('.messages-container');
-                if (container) {
-                    container.scrollTop = container.scrollHeight;
+            console.log("选择对话:", conversation);
+            // 先清空当前选择，确保UI完全刷新
+            selectedConversation.value = null;
+            
+            // 使用setTimeout确保DOM更新
+            setTimeout(async () => {
+                try {
+                    console.log("获取对话详情，ID:", conversation.id);
+                    const response = await http.get(`/api/qa/conversations/${conversation.id}`);
+                    console.log("对话详情响应:", response.data);
+                    
+                    // 设置消息列表
+                    messages.value = response.data.messages || [];
+                    console.log("设置消息列表:", messages.value);
+                    
+                    // 设置选中的对话（使用API返回的完整对话对象）
+                    selectedConversation.value = {
+                        id: response.data.id,
+                        title: response.data.title,
+                        created_at: response.data.created_at,
+                        updated_at: response.data.updated_at
+                    };
+                    console.log("设置选中对话:", selectedConversation.value);
+                    
+                    // 滚动到底部
+                    await nextTick();
+                    const container = document.querySelector('.messages-container');
+                    if (container) {
+                        container.scrollTop = container.scrollHeight;
+                    }
+                } catch (error) {
+                    console.error('获取对话详情失败', error);
+                    ElementPlus.ElMessage.error('获取对话详情失败');
                 }
-            } catch (error) {
-                console.error('获取对话详情失败', error);
-                ElementPlus.ElMessage.error('获取对话详情失败');
-            }
+            }, 100);
         };
         
         // 创建新对话
         const createNewConversation = () => {
+            console.log("创建新对话按钮点击");
             newConversationTitle.value = '新对话 - ' + new Date().toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
-            newConversationDialogVisible.value = true;
+            // 确保对话框可见
+            setTimeout(() => {
+                newConversationDialogVisible.value = true;
+                console.log("新对话对话框显示状态:", newConversationDialogVisible.value);
+            }, 100);
         };
         
         // 提交新对话
@@ -291,29 +315,55 @@ const app = createApp({
         
         // 删除对话
         const deleteConversation = async (conversationId) => {
-            try {
-                console.log("删除对话，ID:", conversationId);
-                await http.delete(`/api/qa/conversations/${conversationId}`); // 移除末尾斜杠
-                
-                // 从列表中移除
-                conversations.value = conversations.value.filter(c => c.id !== conversationId);
-                
-                // 如果删除的是当前选中的对话，清空选择
-                if (selectedConversation.value && selectedConversation.value.id === conversationId) {
-                    selectedConversation.value = null;
-                    messages.value = [];
+            console.log("尝试删除对话，ID:", conversationId);
+            
+            // 显示确认对话框
+            ElementPlus.ElMessageBox.confirm(
+                '确定要删除这个对话吗？删除后将无法恢复。',
+                '删除确认',
+                {
+                    confirmButtonText: '确定删除',
+                    cancelButtonText: '取消',
+                    type: 'warning',
                 }
-                
-                ElementPlus.ElMessage.success('对话已删除');
-            } catch (error) {
-                console.error('删除对话失败', error);
-                ElementPlus.ElMessage.error('删除对话失败');
-            }
+            ).then(async () => {
+                // 用户确认删除
+                try {
+                    console.log("确认删除对话，ID:", conversationId);
+                    await http.delete(`/api/qa/conversations/${conversationId}`);
+                    
+                    // 从列表中移除
+                    conversations.value = conversations.value.filter(c => c.id !== conversationId);
+                    
+                    // 如果删除的是当前选中的对话，清空选择
+                    if (selectedConversation.value && selectedConversation.value.id === conversationId) {
+                        selectedConversation.value = null;
+                        messages.value = [];
+                    }
+                    
+                    ElementPlus.ElMessage.success('对话已删除');
+                } catch (error) {
+                    console.error('删除对话失败', error);
+                    ElementPlus.ElMessage.error('删除对话失败');
+                }
+            }).catch(() => {
+                // 用户取消删除
+                console.log("用户取消删除对话");
+                ElementPlus.ElMessage.info('已取消删除');
+            });
         };
         
         // 发送消息
         const sendMessage = async () => {
-            if (!newMessage.value.trim() || !selectedConversation.value) {
+            console.log("发送消息按钮点击", selectedConversation.value);
+            if (!newMessage.value.trim()) {
+                console.log("消息内容为空，不发送");
+                return;
+            }
+            
+            if (!selectedConversation.value || !selectedConversation.value.id) {
+                console.error("未选择对话或对话ID不存在");
+                ElementPlus.ElMessage.error('请先选择一个对话');
                 return;
             }
             
@@ -322,10 +372,11 @@ const app = createApp({
             sendingMessage.value = true;
             
             try {
-                console.log("发送消息到对话，ID:", selectedConversation.value.id);
-                const response = await http.post(`/api/qa/conversations/${selectedConversation.value.id}/messages`, { // 移除末尾斜杠
+                console.log("发送消息到对话，ID:", selectedConversation.value.id, "内容:", messageContent);
+                const response = await http.post(`/api/qa/conversations/${selectedConversation.value.id}/messages`, {
                     content: messageContent
                 });
+                console.log("发送消息响应:", response.data);
                 
                 // 更新消息列表
                 messages.value.push({
@@ -369,10 +420,16 @@ const app = createApp({
         
         // 上传文档相关
         const openUploadDialog = () => {
-            uploadDialogVisible.value = true;
+            console.log("打开上传对话框按钮点击");
+            // 清空表单
             uploadForm.title = '';
             uploadForm.description = '';
             uploadForm.file = null;
+            // 确保对话框可见
+            setTimeout(() => {
+                uploadDialogVisible.value = true;
+                console.log("上传对话框显示状态:", uploadDialogVisible.value);
+            }, 100);
         };
         
         const beforeUpload = (file) => {
@@ -413,14 +470,19 @@ const app = createApp({
             
             try {
                 const formData = new FormData();
-                formData.append('title', uploadForm.title);
-                if (uploadForm.description) {
-                    formData.append('description', uploadForm.description);
-                }
+                
+                // 创建document_in JSON字符串
+                const documentIn = {
+                    title: uploadForm.title,
+                    description: uploadForm.description || ''
+                };
+                
+                // 添加document_in作为JSON字符串
+                formData.append('document_in', JSON.stringify(documentIn));
                 formData.append('file', uploadForm.file);
                 
-                console.log("上传文档:", uploadForm.title);
-                await http.post('/api/documents', formData, { // 移除末尾斜杠
+                console.log("上传文档:", uploadForm.title, documentIn);
+                await http.post('/api/documents/', formData, { // 添加末尾斜杠
                     headers: {
                         'Content-Type': 'multipart/form-data'
                     }
@@ -522,6 +584,14 @@ const app = createApp({
 document.addEventListener('DOMContentLoaded', function() {
     // 确保Element Plus已加载
     setTimeout(() => {
+        // 注册ElementPlus组件库
+        if (ElementPlus) {
+            app.use(ElementPlus);
+            console.log('ElementPlus组件已注册');
+        } else {
+            console.error('ElementPlus未加载');
+        }
+        
         // 挂载Vue应用
         app.mount('#app');
         console.log('Vue应用已挂载');

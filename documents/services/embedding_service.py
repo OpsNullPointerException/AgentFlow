@@ -3,6 +3,13 @@ from loguru import logger
 import os
 from django.conf import settings
 from openai import OpenAI
+import requests.exceptions
+from common.utils.retry_utils import retry, log_retry, RetryableError
+
+# 定义可重试的错误类型
+class EmbeddingAPIError(RetryableError):
+    """嵌入API调用错误，可以重试的错误"""
+    pass
 
 # loguru不需要getLogger
 
@@ -37,6 +44,13 @@ class EmbeddingService:
             base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"
         )
 
+    @retry(
+        max_tries=3,
+        delay=1.5,
+        backoff_factor=2.0,
+        exceptions=[EmbeddingAPIError, requests.exceptions.RequestException],
+        on_retry=log_retry
+    )
     def get_embedding(self, text: str) -> np.ndarray:
         """获取文本的向量表示"""
         if not self.api_key:
@@ -59,7 +73,17 @@ class EmbeddingService:
             logger.info(f"成功获取嵌入向量，维度: {len(embedding)}")
             return embedding
 
+        except requests.exceptions.RequestException as e:
+            # 网络错误，可以重试
+            logger.error(f"网络请求错误: {str(e)}")
+            raise  # 让装饰器捕获并重试
+
         except Exception as e:
+            if "rate limit" in str(e).lower() or "timeout" in str(e).lower():
+                # 速率限制或超时错误，可以重试
+                logger.error(f"API限制错误: {str(e)}")
+                raise EmbeddingAPIError(f"API调用失败: {str(e)}")
+            
             logger.exception(f"获取嵌入时发生异常: {str(e)}")
-            # 返回随机向量（应急措施）
+            # 其他错误，返回随机向量（应急措施）
             return np.random.rand(self.vector_dim).astype("float32")

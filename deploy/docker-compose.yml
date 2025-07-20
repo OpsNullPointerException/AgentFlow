@@ -15,16 +15,18 @@ services:
     restart: unless-stopped
 
   redis:
-    image: redis:7-alpine
+    image: redislabs/redisearch:latest
     container_name: smartdocs_redis
-    command: redis-server --appendonly yes --requirepass smartdocsredis
+    # command: redis-server --appendonly yes --protected-mode no
+    environment:
+      - REDIS_ARGS=--appendonly yes --protected-mode no
     ports:
       - "6379:6379"  # 标准Redis端口
     volumes:
       - redis_data:/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "smartdocsredis", "ping"]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5

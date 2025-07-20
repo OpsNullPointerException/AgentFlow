@@ -396,7 +396,7 @@ class VectorDBService:
         from common.utils.cache_utils import RedisCache
         
         pattern = "smartdocs:cache:vector_search:*"
-        count = RedisCache.delete_pattern(pattern)
+        count = RedisCache.clear_pattern(pattern)
         
         if count:
             logger.info(f"已清除{count}个向量搜索缓存")

@@ -3,6 +3,13 @@ from typing import List, Dict, Any
 from django.conf import settings
 import dashscope
 from dashscope.aigc.generation import Generation
+import requests.exceptions
+from common.utils.retry_utils import retry, log_retry, RetryableError
+
+# 定义可重试的错误类型
+class LLMAPIError(RetryableError):
+    """LLM API调用错误"""
+    pass
 
 # loguru不需要getLogger
 
@@ -18,6 +25,14 @@ class LLMService:
             # 配置DashScope客户端
             dashscope.api_key = self.api_key
     
+    # 使用重试装饰器包装generate_response方法
+    @retry(
+        max_tries=3,
+        delay=2.0,
+        backoff_factor=2.0,
+        exceptions=[LLMAPIError, requests.exceptions.RequestException],
+        on_retry=log_retry
+    )
     def generate_response(self, query: str, context: str, conversation_history: List[Dict[str, str]] = None) -> Dict[str, Any]:
         """
         调用千问大模型生成回答
@@ -74,8 +89,13 @@ class LLMService:
                 }
             else:
                 logger.error(f"LLM API调用失败: {response.code}, {response.message}")
-                return {"answer": f"调用LLM API时出错: {response.message}", "error": True}
+                # 抛出可重试的错误，让装饰器捕获并重试
+                raise LLMAPIError(f"LLM API调用失败: {response.code}, {response.message}")
                 
+        except requests.exceptions.RequestException as e:
+            # 网络错误直接抛出，由装饰器捕获并重试
+            logger.error(f"网络请求错误: {str(e)}")
+            raise
         except Exception as e:
             logger.exception(f"调用LLM API时发生异常: {str(e)}")
             return {"answer": f"系统错误: {str(e)}", "error": True}
