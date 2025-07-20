@@ -1,5 +1,5 @@
 from ninja import Schema
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import datetime
 
 class ConversationIn(Schema):
@@ -35,3 +35,11 @@ class ConversationOut(Schema):
 class ConversationDetailOut(ConversationOut):
     """对话详情输出Schema"""
     messages: List[MessageOut] = []
+
+class MessageStreamOut(Schema):
+    """流式消息输出Schema"""
+    answer_delta: str
+    finished: bool
+    error: bool = False
+    error_message: str = ""
+    model: str = ""

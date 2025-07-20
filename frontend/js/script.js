@@ -36,8 +36,18 @@ const app = createApp({
         const messages = ref([]);
         const newMessage = ref('');
         const sendingMessage = ref(false);
+        const useStreamingMode = ref(true);  // 默认使用流式响应
+        const currentStreamingMessage = ref(null);  // 当前正在流式生成的消息
+        const selectedModel = ref('qwen-turbo');  // 默认使用更快的模型
         const newConversationDialogVisible = ref(false);
         const newConversationTitle = ref('');
+        
+        // 可用的模型选项
+        const modelOptions = [
+            { value: 'qwen-turbo', label: '千问Turbo (快速)' },
+            { value: 'qwen-plus', label: '千问Plus (平衡)' },
+            { value: 'qwen-max', label: '千问MAX (高质量)' }
+        ];
         
         // 文档相关
         const documents = ref([]);
@@ -263,10 +273,7 @@ const app = createApp({
                     
                     // 滚动到底部
                     await nextTick();
-                    const container = document.querySelector('.messages-container');
-                    if (container) {
-                        container.scrollTop = container.scrollHeight;
-                    }
+                    scrollToBottom();
                 } catch (error) {
                     console.error('获取对话详情失败', error);
                     ElementPlus.ElMessage.error('获取对话详情失败');
@@ -277,7 +284,7 @@ const app = createApp({
         // 创建新对话
         const createNewConversation = () => {
             console.log("创建新对话按钮点击");
-            newConversationTitle.value = '新对话 - ' + new Date().toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+            newConversationTitle.value = '新对话';
             // 确保对话框可见
             setTimeout(() => {
                 newConversationDialogVisible.value = true;
@@ -353,7 +360,29 @@ const app = createApp({
             });
         };
         
-        // 发送消息
+        // 滚动到消息底部
+        const scrollToBottom = async () => {
+            await nextTick();
+            const container = document.querySelector('.messages-container');
+            if (container) {
+                container.scrollTop = container.scrollHeight;
+            }
+        };
+        
+        // 更新对话列表
+        const updateConversationList = () => {
+            const updatedConv = conversations.value.find(c => c.id === selectedConversation.value.id);
+            if (updatedConv) {
+                updatedConv.updated_at = new Date().toISOString();
+                // 将该对话移到顶部
+                conversations.value = [
+                    updatedConv,
+                    ...conversations.value.filter(c => c.id !== selectedConversation.value.id)
+                ];
+            }
+        };
+        
+        // 主消息发送函数
         const sendMessage = async () => {
             console.log("发送消息按钮点击", selectedConversation.value);
             if (!newMessage.value.trim()) {
@@ -367,18 +396,24 @@ const app = createApp({
                 return;
             }
             
+            // 根据模式选择发送方式
+            if (useStreamingMode.value) {
+                sendMessageStream();
+            } else {
+                sendMessageNormal();
+            }
+        };
+        
+        // 普通模式发送消息
+        const sendMessageNormal = async () => {
             const messageContent = newMessage.value;
             newMessage.value = '';
             sendingMessage.value = true;
             
             try {
-                console.log("发送消息到对话，ID:", selectedConversation.value.id, "内容:", messageContent);
-                const response = await http.post(`/api/qa/conversations/${selectedConversation.value.id}/messages`, {
-                    content: messageContent
-                });
-                console.log("发送消息响应:", response.data);
+                console.log("发送消息到对话(普通模式)，ID:", selectedConversation.value.id, "内容:", messageContent);
                 
-                // 更新消息列表
+                // 添加用户消息
                 messages.value.push({
                     id: Date.now(), // 临时ID
                     content: messageContent,
@@ -387,26 +422,20 @@ const app = createApp({
                     referenced_documents: []
                 });
                 
+                // 调用API
+                const response = await http.post(`/api/qa/conversations/${selectedConversation.value.id}/messages`, {
+                    content: messageContent
+                });
+                console.log("发送消息响应:", response.data);
+                
                 // 添加助手回复
                 messages.value.push(response.data);
                 
                 // 滚动到底部
-                await nextTick();
-                const container = document.querySelector('.messages-container');
-                if (container) {
-                    container.scrollTop = container.scrollHeight;
-                }
+                scrollToBottom();
                 
-                // 更新对话列表中的更新时间
-                const updatedConv = conversations.value.find(c => c.id === selectedConversation.value.id);
-                if (updatedConv) {
-                    updatedConv.updated_at = new Date().toISOString();
-                    // 将该对话移到顶部
-                    conversations.value = [
-                        updatedConv,
-                        ...conversations.value.filter(c => c.id !== selectedConversation.value.id)
-                    ];
-                }
+                // 更新对话列表
+                updateConversationList();
             } catch (error) {
                 console.error('发送消息失败', error);
                 ElementPlus.ElMessage.error('发送消息失败');
@@ -415,6 +444,153 @@ const app = createApp({
                 newMessage.value = messageContent;
             } finally {
                 sendingMessage.value = false;
+            }
+        };
+        
+        // 流式模式发送消息
+        const sendMessageStream = () => {
+            const messageContent = newMessage.value;
+            newMessage.value = '';
+            sendingMessage.value = true;
+            
+            try {
+                console.log("发送消息到对话(流式模式)，ID:", selectedConversation.value.id, "内容:", messageContent);
+                
+                // 添加用户消息
+                messages.value.push({
+                    id: Date.now(), // 临时ID
+                    content: messageContent,
+                    message_type: 'user',
+                    created_at: new Date().toISOString(),
+                    referenced_documents: []
+                });
+                
+                // 创建一个空的助手消息占位符
+                let assistantMessage = {
+                    id: Date.now() + 1, // 临时ID
+                    content: '', // 空内容，将逐渐填充
+                    message_type: 'assistant',
+                    created_at: new Date().toISOString(),
+                    referenced_documents: []
+                };
+                
+                // 添加到消息列表
+                messages.value.push(assistantMessage);
+                currentStreamingMessage.value = assistantMessage;
+                
+                // 滚动到底部
+                scrollToBottom();
+                
+                // 更新对话列表
+                updateConversationList();
+                
+                // 创建SSE连接
+                const url = `${API_BASE_URL}/api/qa/conversations/${selectedConversation.value.id}/messages/stream`;
+                const params = new URLSearchParams({
+                    content: messageContent,
+                    token: token.value, // 添加认证令牌作为查询参数
+                    model: selectedModel.value // 添加选择的模型
+                });
+                console.log("创建流式连接，参数:", params.toString());
+                const eventSource = new EventSource(`${url}?${params}`);
+                
+                // 处理消息事件
+                eventSource.onmessage = (event) => {
+                    try {
+                        console.log("收到SSE事件:", event);
+                        const data = JSON.parse(event.data);
+                        console.log("解析的流式数据:", data);
+                        
+                        // 增量更新消息内容
+                        if (data.answer_delta) {
+                            console.log(`收到增量内容: "${data.answer_delta}"`);
+                            
+                            // 解决Vue响应式更新问题：创建对象的副本并重新赋值
+                            const updatedContent = assistantMessage.content + data.answer_delta;
+                            
+                            // 创建消息的完整副本
+                            const updatedMessage = {
+                                ...assistantMessage,
+                                content: updatedContent
+                            };
+                            
+                            // 如果有引用文档，更新
+                            if (data.referenced_documents && data.referenced_documents.length > 0) {
+                                updatedMessage.referenced_documents = data.referenced_documents;
+                            }
+                            
+                            // 更新消息ID (从临时ID更新为服务器分配的ID)
+                            if (data.message_id) {
+                                updatedMessage.id = data.message_id;
+                            }
+                            
+                            // 如果返回了模型信息，显示
+                            if (data.model && !assistantMessage.model) {
+                                updatedMessage.model = data.model;
+                            }
+                            
+                            // 找到消息在数组中的索引
+                            const messageIndex = messages.value.findIndex(m => m.id === assistantMessage.id);
+                            if (messageIndex !== -1) {
+                                // 替换整个消息对象，触发Vue响应式更新
+                                messages.value.splice(messageIndex, 1, updatedMessage);
+                                
+                                // 更新当前流式消息的引用
+                                assistantMessage = updatedMessage;
+                                currentStreamingMessage.value = updatedMessage;
+                            }
+                            
+                            // 滚动到底部
+                            nextTick(() => {
+                                scrollToBottom();
+                            });
+                        }
+                        
+                        // 如果是最后一条消息，关闭连接
+                        if (data.finished) {
+                            eventSource.close();
+                            sendingMessage.value = false;
+                            currentStreamingMessage.value = null;
+                            console.log("流式传输完成");
+                        }
+                        
+                        // 处理错误
+                        if (data.error) {
+                            console.error("流式响应错误:", data.error_message);
+                            ElementPlus.ElMessage.error(`生成回复出错: ${data.error_message}`);
+                            eventSource.close();
+                            sendingMessage.value = false;
+                            currentStreamingMessage.value = null;
+                        }
+                    } catch (err) {
+                        console.error("解析流式数据出错:", err);
+                        eventSource.close();
+                        sendingMessage.value = false;
+                    }
+                };
+                
+                // 处理错误
+                eventSource.onerror = (err) => {
+                    console.error("流式连接错误:", err);
+                    ElementPlus.ElMessage.error('流式连接出错');
+                    eventSource.close();
+                    sendingMessage.value = false;
+                    currentStreamingMessage.value = null;
+                };
+                
+                // 添加open事件处理
+                eventSource.onopen = () => {
+                    console.log("SSE连接已打开，准备接收数据");
+                };
+                
+            } catch (error) {
+                console.error('发送流式消息失败', error);
+                ElementPlus.ElMessage.error('发送流式消息失败');
+                
+                // 恢复消息内容
+                newMessage.value = messageContent;
+                sendingMessage.value = false;
+                currentStreamingMessage.value = null;
             }
         };
         
@@ -559,6 +735,9 @@ const app = createApp({
             searchQuery,
             searchResults,
             searching,
+            useStreamingMode,  // 新增：流式模式控制
+            selectedModel,     // 新增：模型选择
+            modelOptions,      // 新增：模型选项
             
             // 方法
             handleLogin,

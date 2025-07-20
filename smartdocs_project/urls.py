@@ -77,10 +77,12 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/", api.urls),
     path("public-api/", public_api.urls, name="public_api"),
-    
     # 将前端静态文件的index.html作为默认页面
     # 这个路由必须放在最后，作为通配符路由
-    re_path(r"^(?!admin/|api/|public-api/|static/|media/).*", TemplateView.as_view(template_name="index.html")),
+    re_path(
+        r"^(?!admin/|api/|public-api/|static/|media/).*",
+        TemplateView.as_view(template_name="index.html"),
+    ),
 ]
 
 # 添加媒体文件的服务

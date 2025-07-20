@@ -2,9 +2,11 @@ from ninja import Router, File
 from ninja.files import UploadedFile
 from typing import List
 from django.shortcuts import get_object_or_404
+import threading
 
 from documents.models import Document
 from documents.services.vector_db_service import VectorDBService
+from documents.services.document_processor import DocumentProcessor
 from documents.schemas.document import DocumentIn, DocumentOut, DocumentDetailOut
 
 # 创建路由器
@@ -43,8 +45,17 @@ def create_document(request, document_in: DocumentIn, file: UploadedFile = File(
         status='pending'
     )
     
-    # TODO: 在实际应用中，这里应该触发异步任务来处理文档
-    # 例如：process_document.delay(document.id)
+    # 在后台线程处理文档，避免阻塞API响应
+    def process_document_async(document_id):
+        processor = DocumentProcessor()
+        processor.process_document(document_id)
+    
+    # 启动后台线程处理文档
+    threading.Thread(
+        target=process_document_async,
+        args=(document.id,),
+        daemon=True
+    ).start()
     
     return document
 

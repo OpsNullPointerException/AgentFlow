@@ -1,5 +1,5 @@
 from loguru import logger
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Generator
 
 from ..models import Conversation, Message, MessageDocumentReference
 from .rag_service import RAGService
@@ -74,6 +74,74 @@ class QAService:
                 "error": True
             }
     
+    def process_query_stream(self, conversation_id: int, query: str, user_id: int, model: str = "qwen-turbo") -> Generator:
+        """
+        流式处理用户查询并生成回答
+        
+        Args:
+            conversation_id: 对话ID
+            query: 用户的问题
+            user_id: 用户ID
+            model: 使用的LLM模型名称，默认为"qwen-turbo"
+            
+        Returns:
+            生成器，每次返回一小段回答
+        """
+        try:
+            # 1. 获取对话
+            conversation = self._get_or_create_conversation(conversation_id, user_id)
+            
+            # 2. 获取对话历史
+            history = self._get_conversation_history(conversation.id)
+            
+            # 3. 调用RAG系统检索相关文档
+            relevant_docs = self.rag_service.retrieve_relevant_documents(query)
+            
+            # 4. 格式化上下文
+            context = self.rag_service.format_context_for_llm(relevant_docs, query)
+            
+            # 5. 保存用户问题
+            user_message = self._save_message(conversation.id, "user", query)
+            
+            # 6. 创建空的助手回复，后续更新
+            assistant_message = self._save_message(conversation.id, "assistant", "")
+            
+            # 7. 保存文档引用
+            self._save_document_references(assistant_message.id, relevant_docs)
+            
+            # 8. 更新对话时间
+            self._update_conversation_time(conversation.id)
+            
+            # 收集完整响应以便更新数据库
+            full_response = ""
+            
+            # 9. 流式调用LLM并实时返回
+            logger.info(f"使用模型 {model} 流式生成回答")
+            for chunk in self.llm_service.generate_response_stream(query, context, history, model=model):
+                # 如果是增量内容，更新累计响应
+                if "answer_delta" in chunk and chunk["answer_delta"]:
+                    full_response += chunk["answer_delta"]
+                
+                # 如果是最后一块，更新数据库中的消息
+                if chunk.get("finished", False):
+                    # 更新数据库中的消息内容
+                    self._update_message_content(assistant_message.id, full_response)
+                
+                # 添加文档引用和消息ID
+                chunk["message_id"] = assistant_message.id
+                chunk["referenced_documents"] = self._format_document_references(relevant_docs)
+                
+                yield chunk
+                
+        except Exception as e:
+            logger.exception(f"流式处理查询时发生错误: {str(e)}")
+            yield {
+                "answer_delta": f"处理您的问题时出现系统错误: {str(e)}",
+                "error": True,
+                "finished": True,
+                "referenced_documents": []
+            }
+    
     def _get_or_create_conversation(self, conversation_id: Optional[int], user_id: int) -> Conversation:
         """获取或创建对话"""
         if conversation_id:
@@ -112,16 +180,23 @@ class QAService:
             message_type=message_type,
             content=content
         )
+        
+    def _update_message_content(self, message_id: int, content: str) -> None:
+        """更新消息内容"""
+        Message.objects.filter(id=message_id).update(content=content)
     
     def _save_document_references(self, message_id: int, documents: List[Dict[str, Any]]) -> None:
         """保存文档引用"""
         for doc in documents:
             if 'id' in doc and 'score' in doc:
-                MessageDocumentReference.objects.create(
+                # 使用get_or_create避免创建重复记录
+                MessageDocumentReference.objects.get_or_create(
                     message_id=message_id,
                     document_id=doc['id'],
-                    relevance_score=doc['score'],
-                    chunk_indices=doc.get('chunk_indices', [])
+                    defaults={
+                        'relevance_score': doc['score'],
+                        'chunk_indices': doc.get('chunk_indices', [])
+                    }
                 )
     
     def _update_conversation_time(self, conversation_id: int) -> None:

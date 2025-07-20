@@ -1,6 +1,7 @@
 {% load static %}
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -11,11 +12,13 @@
         [v-cloak] {
             display: none;
         }
+
         /* 修复按钮样式 */
         .el-button {
             margin: 5px;
             cursor: pointer !important;
         }
+
         /* 登录框样式 */
         .login-container {
             display: flex;
@@ -25,6 +28,7 @@
             background: linear-gradient(135deg, #034f84, #1890ff);
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
         }
+
         .login-box {
             width: 400px;
             padding: 30px;
@@ -32,29 +36,33 @@
             border-radius: 8px;
             box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
         }
+
         .app-title {
             font-size: 28px;
             color: #1890ff;
             text-align: center;
             margin-bottom: 5px;
         }
+
         .app-subtitle {
             font-size: 16px;
             color: #666;
             text-align: center;
             margin-bottom: 30px;
         }
-        
+
         /* 表单样式 */
         .form-group {
             margin-bottom: 20px;
         }
+
         .form-group label {
             display: block;
             margin-bottom: 5px;
             font-weight: 500;
             color: #333;
         }
+
         .form-control {
             width: 100%;
             padding: 10px;
@@ -63,11 +71,13 @@
             font-size: 14px;
             transition: border-color 0.3s;
         }
+
         .form-control:focus {
             border-color: #1890ff;
             outline: none;
             box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.2);
         }
+
         .btn {
             display: inline-block;
             padding: 10px 15px;
@@ -81,27 +91,31 @@
             cursor: pointer;
             transition: all 0.3s;
         }
+
         .btn-primary {
             color: #fff;
             background-color: #1890ff;
             border-color: #1890ff;
         }
+
         .btn-primary:hover {
             background-color: #40a9ff;
             border-color: #40a9ff;
         }
+
         .btn-block {
             display: block;
             width: 100%;
             margin-top: 30px;
         }
-        
+
         /* 标签样式 */
         .tab-header {
             display: flex;
             margin-bottom: 20px;
             border-bottom: 1px solid #e8e8e8;
         }
+
         .tab-button {
             padding: 10px 20px;
             margin-right: 10px;
@@ -113,9 +127,11 @@
             position: relative;
             outline: none;
         }
+
         .tab-button.active {
             color: #1890ff;
         }
+
         .tab-button.active:after {
             content: '';
             position: absolute;
@@ -134,6 +150,7 @@
     <link rel="stylesheet" href="{% static 'static/css/element-plus.min.css' %}">
     <script src="{% static 'static/js/element-plus.full.min.js' %}"></script>
 </head>
+
 <body>
     {% verbatim %}
     <div id="app" v-cloak>
@@ -142,88 +159,60 @@
             <div class="login-box">
                 <h1 class="app-title">SmartDocs</h1>
                 <h2 class="app-subtitle">智能文档问答平台</h2>
-                
+
                 <!-- 登录/注册切换 -->
                 <div class="tab-header">
-                    <button
-                        :class="['tab-button', activeTab === 'login' ? 'active' : '']"
+                    <button :class="['tab-button', activeTab === 'login' ? 'active' : '']"
                         @click="activeTab = 'login'">登录</button>
-                    <button
-                        :class="['tab-button', activeTab === 'register' ? 'active' : '']"
+                    <button :class="['tab-button', activeTab === 'register' ? 'active' : '']"
                         @click="activeTab = 'register'">注册</button>
                 </div>
-                
+
                 <!-- 登录表单 -->
                 <div class="login-form" v-if="activeTab === 'login'">
                     <form @submit.prevent="handleLogin">
                         <div class="form-group">
                             <label for="username">用户名</label>
-                            <input
-                                type="text"
-                                id="username"
-                                v-model="loginForm.username"
-                                placeholder="请输入用户名"
+                            <input type="text" id="username" v-model="loginForm.username" placeholder="请输入用户名"
                                 class="form-control" />
                         </div>
                         <div class="form-group">
                             <label for="password">密码</label>
-                            <input
-                                type="password"
-                                id="password"
-                                v-model="loginForm.password"
-                                placeholder="请输入密码"
+                            <input type="password" id="password" v-model="loginForm.password" placeholder="请输入密码"
                                 class="form-control" />
                         </div>
-                        <button
-                            type="submit"
-                            class="btn btn-primary btn-block"
-                            :disabled="loading">
+                        <button type="submit" class="btn btn-primary btn-block" :disabled="loading">
                             {{ loading ? '登录中...' : '登录' }}
                         </button>
                     </form>
                 </div>
-                
+
                 <!-- 注册表单 -->
                 <div class="register-form" v-if="activeTab === 'register'">
                     <form @submit.prevent="handleRegister">
                         <div class="form-group">
                             <label for="reg-username">用户名</label>
-                            <input
-                                type="text"
-                                id="reg-username"
-                                v-model="registerForm.username"
-                                placeholder="请输入用户名"
+                            <input type="text" id="reg-username" v-model="registerForm.username" placeholder="请输入用户名"
                                 class="form-control" />
                         </div>
                         <div class="form-group">
                             <label for="reg-password">密码</label>
-                            <input
-                                type="password"
-                                id="reg-password"
-                                v-model="registerForm.password"
-                                placeholder="请输入密码"
+                            <input type="password" id="reg-password" v-model="registerForm.password" placeholder="请输入密码"
                                 class="form-control" />
                         </div>
                         <div class="form-group">
                             <label for="reg-confirm-password">确认密码</label>
-                            <input
-                                type="password"
-                                id="reg-confirm-password"
-                                v-model="registerForm.confirmPassword"
-                                placeholder="请再次输入密码"
-                                class="form-control" />
+                            <input type="password" id="reg-confirm-password" v-model="registerForm.confirmPassword"
+                                placeholder="请再次输入密码" class="form-control" />
                         </div>
-                        <button
-                            type="submit"
-                            class="btn btn-primary btn-block"
-                            :disabled="loading">
+                        <button type="submit" class="btn btn-primary btn-block" :disabled="loading">
                             {{ loading ? '注册中...' : '注册' }}
                         </button>
                     </form>
                 </div>
             </div>
         </div>
-        
+
         <!-- 已登录状态 -->
         <div class="app-container" v-else>
             <!-- 顶部导航 -->
@@ -236,7 +225,7 @@
                     <el-button type="text" @click="handleLogout">退出登录</el-button>
                 </div>
             </header>
-            
+
             <!-- 主内容区 -->
             <div class="app-content">
                 <!-- 侧边栏 -->
@@ -244,26 +233,33 @@
                     <div class="sidebar-section">
                         <div class="section-header">
                             <h3>我的对话</h3>
-                            <el-button size="small" @click.native="createNewConversation" type="primary" icon="el-icon-plus">新对话</el-button>
+                            <el-button size="small" @click.native="createNewConversation" type="primary"
+                                icon="el-icon-plus">新对话</el-button>
                         </div>
                         <ul class="conversation-list">
-                            <li v-for="conv in conversations" :key="conv.id" 
-                                @click="selectConversation(conv)"
+                            <li v-for="conv in conversations" :key="conv.id" @click="selectConversation(conv)"
                                 :class="{'active': selectedConversation && selectedConversation.id === conv.id}">
                                 <div class="conversation-item">
-                                    <span class="conversation-title">{{ conv.title }}</span>
-                                    <span class="conversation-time">{{ formatDate(conv.updated_at) }}</span>
+                                    <div>
+                                        <span class="conversation-title">{{ conv.title }}</span>
+                                    </div>
+                                    <div class="delete-btn">
+                                        <el-tooltip content="删除会话" placement="top">
+                                            <el-button size="mini" type="danger" @click.stop="deleteConversation(conv.id)" class="close-btn">
+                                                ×
+                                            </el-button>
+                                        </el-tooltip>
+                                    </div>
                                 </div>
-                                <el-button size="mini" type="danger" icon="el-icon-delete" 
-                                           @click.stop="deleteConversation(conv.id)"></el-button>
                             </li>
                         </ul>
                     </div>
-                    
+
                     <div class="sidebar-section">
                         <div class="section-header">
                             <h3>我的文档</h3>
-                            <el-button size="small" @click.native="openUploadDialog" type="primary" icon="el-icon-upload">上传</el-button>
+                            <el-button size="small" @click.native="openUploadDialog" type="primary"
+                                icon="el-icon-upload">上传</el-button>
                         </div>
                         <ul class="document-list">
                             <li v-for="doc in documents" :key="doc.id">
@@ -275,7 +271,7 @@
                         </ul>
                     </div>
                 </aside>
-                
+
                 <!-- 主要内容 -->
                 <main class="app-main">
                     <!-- 对话区域 -->
@@ -283,33 +279,52 @@
                         <div class="conversation-header">
                             <h2>{{ selectedConversation.title }}</h2>
                         </div>
-                        
+
                         <div class="messages-container" ref="messagesContainer">
-                            <div v-for="message in messages" :key="message.id" 
-                                 :class="['message', message.message_type === 'user' ? 'user-message' : 'assistant-message']">
+                            <div v-for="message in messages" :key="message.id"
+                                :class="['message', message.message_type === 'user' ? 'user-message' : 'assistant-message', currentStreamingMessage === message ? 'streaming' : '']">
                                 <div class="message-content">
                                     <div class="message-text">{{ message.content }}</div>
-                                    <div class="message-time">{{ formatDate(message.created_at) }}</div>
-                                    
+                                    <div class="message-footer">
+                                        <div class="message-time">{{ formatDate(message.created_at) }}</div>
+                                        <div v-if="message.model" class="message-model">模型: {{ message.model }}</div>
+                                    </div>
+
                                     <!-- 引用文档 -->
-                                    <div v-if="message.referenced_documents && message.referenced_documents.length > 0" class="references">
+                                    <div v-if="message.referenced_documents && message.referenced_documents.length > 0"
+                                        class="references">
                                         <div class="references-header">参考文档：</div>
-                                        <div v-for="ref in message.referenced_documents" :key="ref.id" class="reference-item">
+                                        <div v-for="ref in message.referenced_documents" :key="ref.id"
+                                            class="reference-item">
                                             <div class="reference-title">{{ ref.title }}</div>
-                                            <div class="reference-score">相关度: {{ (ref.relevance_score * 100).toFixed(0) }}%</div>
+                                            <div class="reference-score">相关度: {{ (ref.relevance_score * 100).toFixed(0)
+                                                }}%</div>
                                         </div>
                                     </div>
                                 </div>
                             </div>
                         </div>
-                        
+
                         <div class="input-area">
-                            <el-input v-model="newMessage" type="textarea" :rows="3"
-                                      placeholder="输入您的问题..." @keyup.ctrl.enter="sendMessage"></el-input>
-                            <el-button type="primary" @click.native="sendMessage" :loading="sendingMessage">发送</el-button>
+                            <div class="response-options">
+                                <el-switch v-model="useStreamingMode" active-text="流式响应" inactive-text="普通响应"
+                                    active-color="#13ce66" inactive-color="#ff4949">
+                                </el-switch>
+                                <el-select v-model="selectedModel" size="small" placeholder="选择模型">
+                                    <el-option v-for="item in modelOptions" :key="item.value" :label="item.label"
+                                        :value="item.value">
+                                    </el-option>
+                                </el-select>
+                            </div>
+                            <div class="message-input-row">
+                                <el-input v-model="newMessage" type="textarea" :rows="3"
+                                    placeholder="输入您的问题... (Ctrl+Enter发送)" @keydown="handleMessageKeydown"></el-input>
+                                <el-button type="primary" @click.native="sendMessage"
+                                    :loading="sendingMessage">发送</el-button>
+                            </div>
                         </div>
                     </div>
-                    
+
                     <!-- 欢迎页 -->
                     <div class="welcome-area" v-else>
                         <div class="welcome-content">
@@ -317,7 +332,7 @@
                             <p>请从左侧选择一个对话，或创建一个新的对话</p>
                             <el-button type="primary" @click="createNewConversation">开始新对话</el-button>
                         </div>
-                        
+
                         <!-- 文档检索区域 -->
                         <div class="search-area">
                             <h3>文档检索</h3>
@@ -325,7 +340,7 @@
                                 <el-input v-model="searchQuery" placeholder="输入关键词搜索文档..."></el-input>
                                 <el-button type="primary" @click="searchDocuments" :loading="searching">搜索</el-button>
                             </div>
-                            
+
                             <div class="search-results" v-if="searchResults.length > 0">
                                 <h4>搜索结果 ({{ searchResults.length }})</h4>
                                 <div v-for="result in searchResults" :key="result.id" class="search-result-item">
@@ -339,7 +354,7 @@
                 </main>
             </div>
         </div>
-        
+
         <!-- 上传文档对话框 -->
         <el-dialog title="上传文档" v-model="uploadDialogVisible" width="500px">
             <el-form @submit.prevent="uploadDocument">
@@ -347,15 +362,12 @@
                     <el-input v-model="uploadForm.title" placeholder="请输入文档标题"></el-input>
                 </el-form-item>
                 <el-form-item label="文档描述">
-                    <el-input v-model="uploadForm.description" type="textarea" :rows="3" placeholder="请输入文档描述（可选）"></el-input>
+                    <el-input v-model="uploadForm.description" type="textarea" :rows="3"
+                        placeholder="请输入文档描述（可选）"></el-input>
                 </el-form-item>
                 <el-form-item label="文件">
-                    <el-upload
-                        class="upload-demo"
-                        action="#"
-                        :http-request="handleFileUpload"
-                        :before-upload="beforeUpload"
-                        :limit="1">
+                    <el-upload class="upload-demo" action="#" :http-request="handleFileUpload"
+                        :before-upload="beforeUpload" :limit="1">
                         <el-button size="small" type="primary">选择文件</el-button>
                         <div slot="tip" class="el-upload__tip">只能上传PDF/DOCX/TXT文件，且不超过10MB</div>
                     </el-upload>
@@ -363,7 +375,7 @@
                 <el-button type="primary" @click="uploadDocument" :loading="uploading">上传</el-button>
             </el-form>
         </el-dialog>
-        
+
         <!-- 新建对话对话框 -->
         <el-dialog title="新建对话" v-model="newConversationDialogVisible" width="400px">
             <el-form>
@@ -375,7 +387,8 @@
         </el-dialog>
     </div>
     {% endverbatim %}
-    
+
     <script src="{% static 'js/script.js' %}"></script>
 </body>
+
 </html>

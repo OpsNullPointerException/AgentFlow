@@ -151,6 +151,11 @@ body {
     transition: background-color 0.2s;
 }
 
+/* 使conversation-item内的第一个div（包含标题和时间）占据大部分空间 */
+.conversation-item > div:first-child {
+    flex: 1;
+}
+
 .conversation-item:hover,
 .document-item:hover {
     background-color: var(--bg-color);
@@ -168,13 +173,47 @@ li.active .conversation-item {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    max-width: 180px;
+    width: 100%;
+}
+
+/* 调整conversation-item内的布局 */
+.conversation-item > div:first-child {
+    flex: 1;
+    overflow: hidden;
+    margin-right: 5px;
 }
 
 .conversation-time,
 .document-type {
     font-size: 12px;
     color: var(--light-text);
+}
+
+/* 默认隐藏删除按钮，只在悬停时显示 */
+.conversation-list li .delete-btn {
+    opacity: 0;
+    transition: opacity 0.3s;
+}
+
+.conversation-list li:hover .delete-btn {
+    opacity: 1;
+}
+
+/* 自定义关闭按钮样式 */
+.close-btn {
+    font-size: 14px;
+    padding: 2px 6px;
+    margin-left: 5px;
+    min-height: 0;
+    height: 22px;
+    line-height: 10px;
+    border-radius: 4px;
+    flex-shrink: 0; /* 防止按钮被压缩 */
+}
+
+/* 确保删除按钮容器不被压缩 */
+.delete-btn {
+    flex-shrink: 0;
 }
 
 /* 主区域样式 */
@@ -210,6 +249,22 @@ li.active .conversation-item {
 .message {
     display: flex;
     margin-bottom: 20px;
+    position: relative;
+}
+
+/* 为正在流式生成的消息添加闪烁效果 */
+@keyframes blink {
+    0% { opacity: 1; }
+    50% { opacity: 0.5; }
+    100% { opacity: 1; }
+}
+
+.message.streaming .message-text::after {
+    content: '▌';
+    display: inline-block;
+    animation: blink 1s infinite;
+    margin-left: 2px;
+    color: var(--primary-color);
 }
 
 .user-message {
@@ -237,11 +292,25 @@ li.active .conversation-item {
     word-break: break-word;
 }
 
-.message-time {
+.message-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
     font-size: 12px;
     color: var(--light-text);
-    text-align: right;
     margin-top: 5px;
+}
+
+.message-time {
+    text-align: right;
+}
+
+.message-model {
+    font-size: 11px;
+    color: var(--primary-color);
+    background-color: rgba(24, 144, 255, 0.1);
+    padding: 2px 6px;
+    border-radius: 4px;
 }
 
 .references {
@@ -277,7 +346,26 @@ li.active .conversation-item {
     padding: 15px 20px;
     border-top: 1px solid var(--border-color);
     display: flex;
+    flex-direction: column;
+}
+
+.response-options {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+    padding: 5px 0;
+}
+
+.response-options .el-select {
+    width: 150px;
+    margin-left: 20px;
+}
+
+.input-area .message-input-row {
+    display: flex;
     align-items: flex-end;
+    width: 100%;
 }
 
 .input-area .el-textarea {

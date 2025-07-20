@@ -1,18 +1,21 @@
 from django.shortcuts import get_object_or_404
 from django.db import transaction
-from typing import List
+from django.http import StreamingHttpResponse
+from typing import List, Generator
 from qa.controllers import router
 from qa.schemas.conversation import (
     ConversationIn,
     ConversationOut,
     ConversationDetailOut,
     MessageIn,
-    MessageOut
+    MessageOut,
+    MessageStreamOut
 )
 from qa.models import Conversation, Message, MessageDocumentReference
 from documents.models import Document
 from qa.services.qa_service import QAService
 from loguru import logger
+import json
 
 @router.get("/conversations", response=List[ConversationOut])
 def list_conversations(request):
@@ -123,6 +126,7 @@ def create_message(request, conversation_id: int, data: MessageIn):
         
         # 6. 返回助手消息
         logger.info(f"用户查询处理完成，对话ID: {conversation_id}")
+        
         return assistant_message
         
     except Exception as e:
@@ -131,11 +135,95 @@ def create_message(request, conversation_id: int, data: MessageIn):
         # 创建一个错误响应消息
         with transaction.atomic():
             error_message = Message.objects.create(
-                conversation_id=conversation.id,
+                conversation_id=conversation_id,
                 content=f"处理您的请求时发生错误: {str(e)}",
                 message_type='assistant'
             )
         return error_message
+
+@router.get("/conversations/{conversation_id}/messages/stream", auth=None, response=None)
+def create_message_stream(request, conversation_id: int):
+    """向对话中添加新消息并获取流式回复（SSE）- GET方法用于EventSource"""
+    
+    # 从查询参数中获取内容、令牌和模型
+    message_content = request.GET.get("content", "")
+    token = request.GET.get("token", "")
+    model = request.GET.get("model", "qwen-turbo")  # 默认使用qwen-turbo
+    
+    if not message_content:
+        return {"error": "缺少必要的content参数"}
+        
+    if not token:
+        return {"error": "缺少认证令牌"}
+    
+    logger.info(f"收到流式请求，对话ID: {conversation_id}, 使用模型: {model}")
+        
+    # 手动验证令牌
+    from accounts.controllers.auth import get_user_from_token
+    user = get_user_from_token(token)
+    if not user:
+        return {"error": "无效的令牌或令牌已过期"}, 401
+    
+    def event_stream() -> Generator[str, None, None]:
+        try:
+            # 发送一个初始心跳消息，测试连接是否正常
+            logger.info(f"开始流式传输，发送初始心跳")
+            init_data = {"init": True, "message": "连接已建立"}
+            yield f"data: {json.dumps(init_data)}\n\n"
+            
+            # 1. 验证对话存在并属于当前用户
+            conversation = get_object_or_404(Conversation, id=conversation_id, user_id=user.id)
+            
+            # 2. 记录用户消息
+            user_message = Message.objects.create(
+                conversation_id=conversation.id,
+                content=message_content,
+                message_type='user'
+            )
+            
+            # 3. 调用QA服务处理查询 - 流式模式
+            logger.info(f"开始流式处理用户查询，对话ID: {conversation_id}, 查询内容: {message_content[:50] if len(message_content) > 50 else message_content}, 使用模型: {model}")
+            qa_service = QAService()
+            
+            # 4. 处理流式响应并返回给前端
+            chunk_count = 0
+            for chunk in qa_service.process_query_stream(
+                conversation_id=conversation_id,
+                query=message_content,
+                user_id=user.id,
+                model=model  # 传递模型参数
+            ):
+                chunk_count += 1
+                # 将Python对象转换为JSON字符串
+                json_data = json.dumps(chunk)
+                # 添加调试日志
+                logger.debug(f"生成数据块 #{chunk_count}: {json_data[:100]}...")
+                # 返回SSE格式数据
+                sse_data = f"data: {json_data}\n\n"
+                logger.debug(f"发送SSE数据: {sse_data[:100]}...")
+                yield sse_data
+                
+            logger.info(f"流式处理用户查询完成，对话ID: {conversation_id}")
+                
+        except Exception as e:
+            logger.exception(f"流式处理出错: {str(e)}")
+            error_data = {
+                "error": True, 
+                "error_message": str(e),
+                "finished": True,
+                "answer_delta": f"\n\n处理失败: {str(e)}"
+            }
+            yield f"data: {json.dumps(error_data)}\n\n"
+    
+    # 返回流式响应
+    response = StreamingHttpResponse(
+        event_stream(),
+        content_type="text/event-stream"
+    )
+    # 添加SSE所需的响应头
+    response['Cache-Control'] = 'no-cache'
+    response['X-Accel-Buffering'] = 'no'  # 禁用Nginx缓冲
+    return response
 
 @router.delete("/conversations/{conversation_id}")
 def delete_conversation(request, conversation_id: int):
