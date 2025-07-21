@@ -165,9 +165,26 @@ MAX_UPLOAD_SIZE = int(os.environ.get("MAX_UPLOAD_SIZE", 10 * 1024 * 1024))  # �
 QWEN_API_KEY = os.environ.get("QWEN_API_KEY", "")
 DASHSCOPE_API_KEY = os.environ.get("DASHSCOPE_API_KEY", "")
 
-# 嵌入模型配置
+# 嵌入服务配置
+# 选择使用哪种嵌入服务: 'api'(DashScope API) 或 'local'(本地嵌入模型)
+EMBEDDING_SERVICE_TYPE = os.environ.get("EMBEDDING_SERVICE_TYPE", "local")
+
+# API嵌入模型配置（当 EMBEDDING_SERVICE_TYPE='api' 时使用）
 EMBEDDING_MODEL_VERSION = os.environ.get("EMBEDDING_MODEL_VERSION", "text-embedding-v4")
 EMBEDDING_MODEL_DIMENSIONS = 1024
+
+# 本地嵌入模型配置（当 EMBEDDING_SERVICE_TYPE='local' 时使用）
+# 支持的模型及其维度:
+# - all-MiniLM-L6-v2: 384维，英文优先，小巧高效
+# - all-mpnet-base-v2: 768维，英文优先，效果更好
+# - BAAI/bge-small-zh-v1.5: 384维，中文优先
+# - BAAI/bge-base-zh-v1.5: 768维，中文优先
+# - BAAI/bge-large-zh-v1.5: 1024维，中文优先，最佳质量
+# - paraphrase-multilingual-MiniLM-L12-v2: 384维，多语言
+LOCAL_EMBEDDING_MODEL = os.environ.get("LOCAL_EMBEDDING_MODEL", "BAAI/bge-large-zh-v1.5")
+
+# 注意：text-embedding-v4是OpenAI API模型，不是HuggingFace模型
+# 确保在使用本地嵌入服务时不使用API模型名称
 
 # 向量库配置
 VECTOR_STORE_PATH = os.environ.get("VECTOR_STORE_PATH", str(BASE_DIR / "vector_store"))

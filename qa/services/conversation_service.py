@@ -1,0 +1,210 @@
+from typing import List, Dict, Any, Generator, Optional
+import json
+from django.db import transaction
+from django.shortcuts import get_object_or_404
+
+from ..models import Conversation, Message, MessageDocumentReference
+from documents.models import Document
+from qa.services.qa_service import QAService
+from loguru import logger
+
+class ConversationService:
+    """对话服务，负责处理对话相关的业务逻辑"""
+    
+    def __init__(self):
+        self.qa_service = QAService()
+    
+    def get_user_conversations(self, user_id: int) -> List[Dict[str, Any]]:
+        """获取用户的所有对话"""
+        conversations = Conversation.objects.filter(user_id=user_id)
+        return list(conversations.values())
+    
+    def create_conversation(self, user_id: int, title: str) -> Dict[str, Any]:
+        """创建新对话"""
+        conversation = Conversation.objects.create(
+            title=title,
+            user_id=user_id
+        )
+        return conversation.__dict__
+    
+    def delete_conversation(self, conversation_id: int, user_id: int) -> bool:
+        """删除对话"""
+        conversation = get_object_or_404(Conversation, id=conversation_id, user_id=user_id)
+        conversation.delete()
+        return True
+    
+    def get_conversation_with_messages(self, conversation_id: int, user_id: int) -> Dict[str, Any]:
+        """获取对话详情，包括所有消息和文档引用"""
+        # 获取对话
+        conversation = get_object_or_404(Conversation, id=conversation_id, user_id=user_id)
+        
+        # 获取关联的消息
+        messages = Message.objects.filter(conversation_id=conversation.id).order_by('created_at')
+        
+        # 获取每个消息的文档引用
+        messages_with_refs = []
+        for message in messages:
+            refs = self._get_message_document_references(message.id, message.message_type)
+            
+            # 构建消息对象
+            message_dict = {
+                "id": message.id,
+                "content": message.content,
+                "message_type": message.message_type,
+                "created_at": message.created_at,
+                "referenced_documents": refs
+            }
+            messages_with_refs.append(message_dict)
+        
+        # 构建结果对象
+        result = {
+            "id": conversation.id,
+            "title": conversation.title,
+            "created_at": conversation.created_at,
+            "updated_at": conversation.updated_at,
+            "messages": messages_with_refs
+        }
+        
+        return result
+    
+    def create_message(self, conversation_id: int, user_id: int, content: str, model: str = None) -> Dict[str, Any]:
+        """向对话中添加新消息并获取回复"""
+        try:
+            # 验证对话存在并属于当前用户
+            get_object_or_404(Conversation, id=conversation_id, user_id=user_id)
+            
+            # 使用QA服务处理查询
+            logger.info(f"开始处理用户查询，对话ID: {conversation_id}, 查询内容: {content[:50]}...")
+            qa_response = self.qa_service.process_query(
+                conversation_id=conversation_id,
+                query=content,
+                user_id=user_id
+            )
+            
+            # 获取助手回复信息
+            assistant_message = Message.objects.filter(
+                conversation_id=conversation_id,
+                message_type='assistant'
+            ).order_by('-created_at').first()
+            
+            if not assistant_message:
+                # 如果没有找到助手消息，创建一个错误消息
+                logger.error(f"QA服务处理成功但未找到助手消息记录，对话ID: {conversation_id}")
+                with transaction.atomic():
+                    assistant_message = Message.objects.create(
+                        conversation_id=conversation_id,
+                        content=qa_response.get("answer", "处理请求时发生错误"),
+                        message_type='assistant'
+                    )
+            
+            # 更新对话时间
+            self._update_conversation_time(conversation_id)
+            
+            # 构建返回对象，包括文档引用
+            message_data = {
+                "id": assistant_message.id,
+                "content": assistant_message.content,
+                "message_type": assistant_message.message_type,
+                "created_at": assistant_message.created_at,
+                "referenced_documents": self._get_message_document_references(assistant_message.id, 'assistant')
+            }
+            
+            if model:
+                message_data["model"] = model
+                
+            logger.info(f"用户查询处理完成，对话ID: {conversation_id}")
+            
+            return message_data
+            
+        except Exception as e:
+            # 处理异常情况
+            logger.exception(f"处理消息时出错: {str(e)}")
+            # 创建一个错误响应消息
+            with transaction.atomic():
+                error_message = Message.objects.create(
+                    conversation_id=conversation_id,
+                    content=f"处理您的请求时发生错误: {str(e)}",
+                    message_type='assistant'
+                )
+            
+            return {
+                "id": error_message.id,
+                "content": error_message.content,
+                "message_type": error_message.message_type,
+                "created_at": error_message.created_at,
+                "referenced_documents": []
+            }
+    
+    def create_message_stream(self, conversation_id: int, user_id: int, content: str, model: str = "qwen-turbo") -> Generator[str, None, None]:
+        """向对话中添加新消息并获取流式回复（SSE）"""
+        try:
+            # 发送一个初始心跳消息，测试连接是否正常
+            logger.info(f"开始流式传输，发送初始心跳")
+            init_data = {"init": True, "message": "连接已建立"}
+            yield f"data: {json.dumps(init_data)}\n\n"
+            
+            # 验证对话存在并属于当前用户
+            conversation = get_object_or_404(Conversation, id=conversation_id, user_id=user_id)
+            
+            # 记录用户消息
+            user_message = Message.objects.create(
+                conversation_id=conversation.id,
+                content=content,
+                message_type='user'
+            )
+            
+            # 调用QA服务处理查询 - 流式模式
+            logger.info(f"开始流式处理用户查询，对话ID: {conversation_id}, 查询内容: {content[:50] if len(content) > 50 else content}, 使用模型: {model}")
+            
+            # 处理流式响应并返回给前端
+            chunk_count = 0
+            for chunk in self.qa_service.process_query_stream(
+                conversation_id=conversation_id,
+                query=content,
+                user_id=user_id,
+                model=model
+            ):
+                chunk_count += 1
+                # 将Python对象转换为JSON字符串
+                json_data = json.dumps(chunk)
+                # 添加调试日志
+                logger.debug(f"生成数据块 #{chunk_count}: {json_data[:100]}...")
+                # 返回SSE格式数据
+                sse_data = f"data: {json_data}\n\n"
+                logger.debug(f"发送SSE数据: {sse_data[:100]}...")
+                yield sse_data
+                
+            logger.info(f"流式处理用户查询完成，对话ID: {conversation_id}")
+                
+        except Exception as e:
+            logger.exception(f"流式处理出错: {str(e)}")
+            error_data = {
+                "error": True, 
+                "error_message": str(e),
+                "finished": True,
+                "answer_delta": f"\n\n处理失败: {str(e)}"
+            }
+            yield f"data: {json.dumps(error_data)}\n\n"
+    
+    def _get_message_document_references(self, message_id: int, message_type: str) -> List[Dict[str, Any]]:
+        """获取消息的文档引用"""
+        refs = []
+        if message_type == 'assistant':  # 只有助手消息才有文档引用
+            doc_refs = MessageDocumentReference.objects.filter(message_id=message_id)
+            for doc_ref in doc_refs:
+                try:
+                    doc = Document.objects.get(id=doc_ref.document_id)
+                    refs.append({
+                        "id": doc.id,
+                        "title": doc.title,
+                        "relevance_score": doc_ref.relevance_score,
+                        "chunk_indices": doc_ref.chunk_indices
+                    })
+                except Document.DoesNotExist:
+                    # 文档可能已被删除
+                    pass
+        return refs
+    
+    def _update_conversation_time(self, conversation_id: int) -> None:
+        """更新对话的最后更新时间"""
+        Conversation.objects.filter(id=conversation_id).update()  # 自动更新updated_at

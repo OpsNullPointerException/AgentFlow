@@ -26,3 +26,7 @@ class DocumentChunkOut(Schema):
 class DocumentDetailOut(DocumentOut):
     """包含文档块信息的文档详情Schema"""
     chunks: List[DocumentChunkOut] = []
+    
+class ReindexDocumentIn(Schema):
+    """用于重新索引文档的输入Schema"""
+    embedding_model_version: Optional[str] = None

@@ -7,7 +7,7 @@ import threading
 from documents.models import Document
 from documents.services.vector_db_service import VectorDBService
 from documents.services.document_processor import DocumentProcessor
-from documents.schemas.document import DocumentIn, DocumentOut, DocumentDetailOut
+from documents.schemas.document import DocumentIn, DocumentOut, DocumentDetailOut, ReindexDocumentIn
 
 # 创建路由器
 router = Router(tags=["documents"])
@@ -71,3 +71,43 @@ def delete_document(request, document_id: int):
     VectorDBService.clear_search_cache()
     
     return {"success": True}
+
+@router.post("/{document_id}/reindex", response=DocumentOut)
+def reindex_document(request, document_id: int, reindex_data: ReindexDocumentIn = None):
+    """重新索引文档，可选择不同的嵌入模型版本"""
+    # 获取文档
+    document = get_object_or_404(Document, id=document_id, owner_id=request.auth.id)
+    
+    # 获取嵌入模型版本
+    embedding_model_version = None
+    if reindex_data:
+        embedding_model_version = reindex_data.embedding_model_version
+    
+    # 如果未指定嵌入模型版本，则使用设置中的版本
+    if not embedding_model_version:
+        from django.conf import settings
+        # 根据配置选择合适的嵌入模型版本
+        if getattr(settings, 'EMBEDDING_SERVICE_TYPE', 'api') == 'local':
+            embedding_model_version = settings.LOCAL_EMBEDDING_MODEL
+        else:
+            embedding_model_version = settings.EMBEDDING_MODEL_VERSION
+    
+    # 在后台线程重新处理文档
+    def reprocess_document_async(doc_id, embed_model_version):
+        processor = DocumentProcessor(embedding_model_version=embed_model_version)
+        processor.process_document(doc_id)
+    
+    # 更新文档状态
+    document.status = 'pending'
+    document.error_message = ''
+    document.embedding_model_version = embedding_model_version  # 记录使用的模型版本
+    document.save()
+    
+    # 启动后台线程处理文档
+    threading.Thread(
+        target=reprocess_document_async,
+        args=(document.id, embedding_model_version),
+        daemon=True
+    ).start()
+    
+    return document

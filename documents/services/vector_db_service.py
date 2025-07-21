@@ -13,7 +13,8 @@ import time
 import hashlib
 
 from ..models import Document, DocumentChunk
-from .embedding_service import EmbeddingService
+# 替换直接导入为使用工厂函数
+from .embedding_factory import get_embedding_service
 from common.utils.cache_utils import RedisCache, cached
 
 # loguru不需要getLogger
@@ -33,26 +34,85 @@ class VectorDBService:
     REDIS_UPDATE_FLAG_KEY = "smartdocs:faiss:updated:{}"  # 用于标记索引更新
     REDIS_EXPIRY = 60 * 60 * 24 * 7  # 7天过期
 
-    def __init__(self, embedding_model_version=None):
+    @classmethod
+    def get_instance(cls, embedding_model_version=None):
         """
-        初始化向量数据库服务
-
+        获取单例实例，确保相同嵌入模型版本只有一个实例
+        
         Args:
             embedding_model_version: 嵌入模型版本，如果未指定则使用settings中的配置
+            
+        Returns:
+            VectorDBService: 单例实例
+        """
+        # 规范化模型版本，确保None使用默认值
+        model_version = embedding_model_version or settings.EMBEDDING_MODEL_VERSION
+        
+        # 使用锁保证线程安全
+        with cls._instance_lock:
+            # 如果该模型版本的实例不存在，则创建
+            if model_version not in cls._instances:
+                logger.info(f"创建新的VectorDBService实例 (模型版本: {model_version})")
+                cls._instances[model_version] = super(VectorDBService, cls).__new__(cls)
+                cls._instances[model_version]._initialized = False
+            
+            instance = cls._instances[model_version]
+            
+            # 如果该实例尚未初始化，调用初始化方法
+            if not getattr(instance, '_initialized', False):
+                instance._init(model_version)
+                instance._initialized = True
+                
+            return instance
+    
+    def __new__(cls, embedding_model_version=None):
+        """
+        重写__new__方法，确保直接实例化也使用单例模式
+        
+        Args:
+            embedding_model_version: 嵌入模型版本
+            
+        Returns:
+            VectorDBService: 单例实例
+        """
+        return cls.get_instance(embedding_model_version)
+    
+    def _init(self, embedding_model_version=None):
+        """
+        真正的初始化方法，由单例模式控制调用
+        
+        Args:
+            embedding_model_version: 嵌入模型版本
+        """
+        # 记录使用的嵌入模型版本
+        self.embedding_model_version = embedding_model_version
+        logger.info(f"初始化VectorDBService，使用嵌入模型: {self.embedding_model_version}")
+
+        # 调用真正的初始化方法
+        self._init(embedding_model_version)
+        self._initialized = True
+    
+    def _init(self, embedding_model_version=None):
+        """
+        真正的初始化方法，由单例模式控制调用
+        
+        Args:
+            embedding_model_version: 嵌入模型版本
         """
         # 记录使用的嵌入模型版本
         self.embedding_model_version = embedding_model_version or settings.EMBEDDING_MODEL_VERSION
         logger.info(f"初始化VectorDBService，使用嵌入模型: {self.embedding_model_version}")
+        
+        # 使用工厂函数初始化嵌入服务，传递模型版本
+        self.embedding_service = get_embedding_service(embedding_model_version=self.embedding_model_version)
 
-        # 初始化嵌入服务，传递模型版本
-        self.embedding_service = EmbeddingService(
-            embedding_model_version=self.embedding_model_version
-        )
-
+        # 从嵌入服务获取实际向量维度，而不是使用配置中的固定值
+        self.vector_dim = self.embedding_service.vector_dim  # 使用嵌入服务的实际向量维度
+        logger.info(f"使用向量维度: {self.vector_dim} (来自嵌入服务的实际维度)")
+        
         self.vector_store_path = settings.VECTOR_STORE_PATH
         self.index_file = os.path.join(self.vector_store_path, "faiss_index.bin")
         self.mapping_file = os.path.join(self.vector_store_path, "chunk_mapping.pkl")
-        self.vector_dim = settings.EMBEDDING_MODEL_DIMENSIONS  # 使用配置中的向量维度
 
         # 确保向量库目录存在
         Path(self.vector_store_path).mkdir(parents=True, exist_ok=True)
@@ -387,7 +447,7 @@ class VectorDBService:
         Returns:
             检索结果列表
         """
-        instance = VectorDBService(embedding_model_version=embedding_model_version)
+        instance = VectorDBService.get_instance(embedding_model_version=embedding_model_version)
         return instance.search(query, top_k)
         
     @staticmethod
@@ -416,7 +476,8 @@ class VectorDBService:
         def _preload_in_thread(model_version):
             try:
                 logger.info(f"开始异步预加载索引 (模型版本: {model_version})...")
-                instance = VectorDBService(embedding_model_version=model_version)
+                # 使用单例方法获取实例，而不是直接实例化
+                instance = VectorDBService.get_instance(embedding_model_version=model_version)
                 logger.info(f"索引异步预加载完成 (模型版本: {model_version})")
             except Exception as e:
                 logger.error(f"索引异步预加载失败: {str(e)}")

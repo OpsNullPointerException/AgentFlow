@@ -209,7 +209,7 @@ class DocumentProcessor:
             # 释放内存
             del chunk_objects
             gc.collect()
-
+    #TODO 分块算法待优化
     def _chunk_text(
         self,
         text: str,
