@@ -55,14 +55,29 @@ class LocalEmbeddingService:
             self.model = None
             
     def _load_model(self):
-        """加载嵌入模型"""
+        """加载嵌入模型，优先使用本地缓存"""
         try:
             # 检查模型缓存目录
             os_cache_dir = os.environ.get('HF_HOME') or os.path.join(os.path.expanduser('~'), '.cache', 'huggingface')
             logger.info(f"模型将缓存到: {os_cache_dir}")
             
-            logger.info(f"开始加载模型: {self.embedding_model_version}")
-            self.model = self.SentenceTransformer(self.embedding_model_version)
+            # 首先尝试仅使用本地文件加载模型
+            logger.info(f"尝试从本地缓存加载模型: {self.embedding_model_version}")
+            try:
+                self.model = self.SentenceTransformer(
+                    self.embedding_model_version,
+                    local_files_only=True  # 只使用本地缓存
+                )
+                logger.info("成功从本地缓存加载模型")
+            except Exception as local_err:
+                # 本地加载失败，尝试联网加载
+                logger.warning(f"从本地加载模型失败: {str(local_err)}，尝试联网下载...")
+                self.model = self.SentenceTransformer(
+                    self.embedding_model_version,
+                    cache_folder=os_cache_dir  # 指定缓存目录
+                )
+                logger.info("成功通过网络下载并加载模型")
+            
             logger.info(f"模型加载成功，实际向量维度: {self.model.get_sentence_embedding_dimension()}")
             
             # 更新向量维度为模型的实际维度

@@ -163,6 +163,54 @@ class RedisCache:
         except Exception as e:
             logger.warning(f"清除缓存模式失败 - 模式:{pattern}, 错误:{str(e)}")
             return 0
+    
+    @staticmethod
+    def get_redis_client():
+        """
+        获取原始Redis客户端连接
+        
+        Returns:
+            Redis客户端对象
+        """
+        try:
+            return cache.client.get_client()
+        except Exception as e:
+            logger.error(f"获取Redis客户端失败: {str(e)}")
+            raise
+    
+    @staticmethod
+    def publish(channel: str, message: Any) -> int:
+        """
+        发布消息到指定频道
+        
+        Args:
+            channel: 频道名称
+            message: 要发布的消息(可以是任何可序列化对象)
+            
+        Returns:
+            int: 接收到消息的客户端数量
+        """
+        try:
+            client = RedisCache.get_redis_client()
+            return client.publish(channel, message)
+        except Exception as e:
+            logger.error(f"发布消息失败 - 频道:{channel}, 错误:{str(e)}")
+            return 0
+    
+    @staticmethod
+    def get_pubsub():
+        """
+        获取Redis的发布订阅对象
+        
+        Returns:
+            PubSub对象，用于订阅频道和接收消息
+        """
+        try:
+            client = RedisCache.get_redis_client()
+            return client.pubsub()
+        except Exception as e:
+            logger.error(f"获取PubSub对象失败: {str(e)}")
+            raise
 
 
 def cached(prefix: str, timeout: Optional[int] = None, key_func: Optional[Callable] = None):

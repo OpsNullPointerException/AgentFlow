@@ -109,16 +109,25 @@ class DocumentProcessor:
         """流式提取文本，避免一次性加载大文件"""
         file_path = document.file.path
         file_size = os.path.getsize(file_path) / (1024 * 1024)  # MB
-        logger.info(f"处理文件{file_path}，大小: {file_size:.2f}MB")
+        
+        # 获取原始文件名
+        original_filename = os.path.basename(document.file.name)
+        logger.info(f"处理文件{original_filename}，路径: {file_path}，大小: {file_size:.2f}MB")
 
+        # 提取文本内容
+        content = ""
         if document.file_type == "pdf":
-            return self._extract_text_from_pdf_stream(file_path)
+            content = self._extract_text_from_pdf_stream(file_path)
         elif document.file_type == "docx":
-            return self._extract_text_from_docx_stream(file_path)
+            content = self._extract_text_from_docx_stream(file_path)
         elif document.file_type == "txt":
-            return self._extract_text_from_txt_stream(file_path)
+            content = self._extract_text_from_txt_stream(file_path)
         else:
             raise ValueError(f"不支持的文件类型: {document.file_type}")
+            
+        # 在内容前添加文件名信息，以便在索引和搜索中包含文件名
+        file_info = f"文件名: {original_filename}\n标题: {document.title}\n\n"
+        return file_info + content
 
     def _extract_text_from_pdf_stream(self, file_path: str) -> str:
         """流式处理PDF文件，逐页提取文本"""

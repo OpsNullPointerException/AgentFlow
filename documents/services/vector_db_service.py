@@ -1,18 +1,17 @@
 import os
 import numpy as np
 import faiss
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from loguru import logger
 from django.conf import settings
 import pickle
-import zlib  # 添加zlib用于压缩和解压缩数据
 from pathlib import Path
 import gc  # 添加垃圾回收模块
 import threading
 import time
-import hashlib
 
 from ..models import Document, DocumentChunk
+
 # 替换直接导入为使用工厂函数
 from .embedding_factory import get_embedding_service
 from common.utils.cache_utils import RedisCache, cached
@@ -28,26 +27,29 @@ class VectorDBService:
     _instance_lock = threading.Lock()
     _initialized_lock = threading.Lock()
     _is_initialized = {}  # 使用字典跟踪每个模型版本是否已预加载
-    
+
     # Redis键前缀
     REDIS_META_KEY = "smartdocs:faiss:meta:{}"  # 用于存储元数据
     REDIS_UPDATE_FLAG_KEY = "smartdocs:faiss:updated:{}"  # 用于标记索引更新
     REDIS_EXPIRY = 60 * 60 * 24 * 7  # 7天过期
+    
+    # Redis Pub/Sub频道
+    REDIS_UPDATE_CHANNEL = "smartdocs:faiss:update_channel:{}"  # 索引更新通知频道
 
     @classmethod
     def get_instance(cls, embedding_model_version=None):
         """
         获取单例实例，确保相同嵌入模型版本只有一个实例
-        
+
         Args:
             embedding_model_version: 嵌入模型版本，如果未指定则使用settings中的配置
-            
+
         Returns:
             VectorDBService: 单例实例
         """
         # 规范化模型版本，确保None使用默认值
         model_version = embedding_model_version or settings.EMBEDDING_MODEL_VERSION
-        
+
         # 使用锁保证线程安全
         with cls._instance_lock:
             # 如果该模型版本的实例不存在，则创建
@@ -55,97 +57,90 @@ class VectorDBService:
                 logger.info(f"创建新的VectorDBService实例 (模型版本: {model_version})")
                 cls._instances[model_version] = super(VectorDBService, cls).__new__(cls)
                 cls._instances[model_version]._initialized = False
-            
+
             instance = cls._instances[model_version]
-            
+
             # 如果该实例尚未初始化，调用初始化方法
-            if not getattr(instance, '_initialized', False):
+            if not getattr(instance, "_initialized", False):
                 instance._init(model_version)
                 instance._initialized = True
-                
+
             return instance
-    
+
     def __new__(cls, embedding_model_version=None):
         """
         重写__new__方法，确保直接实例化也使用单例模式
-        
+
         Args:
             embedding_model_version: 嵌入模型版本
-            
+
         Returns:
             VectorDBService: 单例实例
         """
         return cls.get_instance(embedding_model_version)
-    
-    def _init(self, embedding_model_version=None):
-        """
-        真正的初始化方法，由单例模式控制调用
-        
-        Args:
-            embedding_model_version: 嵌入模型版本
-        """
-        # 记录使用的嵌入模型版本
-        self.embedding_model_version = embedding_model_version
-        logger.info(f"初始化VectorDBService，使用嵌入模型: {self.embedding_model_version}")
 
-        # 调用真正的初始化方法
-        self._init(embedding_model_version)
-        self._initialized = True
-    
     def _init(self, embedding_model_version=None):
         """
         真正的初始化方法，由单例模式控制调用
-        
+
         Args:
             embedding_model_version: 嵌入模型版本
         """
         # 记录使用的嵌入模型版本
         self.embedding_model_version = embedding_model_version or settings.EMBEDDING_MODEL_VERSION
         logger.info(f"初始化VectorDBService，使用嵌入模型: {self.embedding_model_version}")
-        
+
         # 使用工厂函数初始化嵌入服务，传递模型版本
-        self.embedding_service = get_embedding_service(embedding_model_version=self.embedding_model_version)
+        self.embedding_service = get_embedding_service(
+            embedding_model_version=self.embedding_model_version
+        )
 
         # 从嵌入服务获取实际向量维度，而不是使用配置中的固定值
         self.vector_dim = self.embedding_service.vector_dim  # 使用嵌入服务的实际向量维度
         logger.info(f"使用向量维度: {self.vector_dim} (来自嵌入服务的实际维度)")
-        
+
         self.vector_store_path = settings.VECTOR_STORE_PATH
         self.index_file = os.path.join(self.vector_store_path, "faiss_index.bin")
         self.mapping_file = os.path.join(self.vector_store_path, "chunk_mapping.pkl")
 
         # 确保向量库目录存在
         Path(self.vector_store_path).mkdir(parents=True, exist_ok=True)
+        
+        # Pub/Sub通知相关
+        self._subscriber_thread = None
+        self._stop_subscriber = threading.Event()
+        self._pid = os.getpid()  # 记录当前进程ID用于过滤自己发出的通知
 
         # 初始化或加载索引
         self._init_index()
+        
+        # 启动索引更新通知订阅
+        self._start_update_subscriber()
 
     def _get_redis_key(self, key_template):
         """获取带版本号的Redis键"""
         # 生成安全的版本名，替换不适合作为键的字符
-        safe_version = self.embedding_model_version.replace('/', '_').replace('-', '_')
+        safe_version = self.embedding_model_version.replace("/", "_").replace("-", "_")
         return key_template.format(safe_version)
-    
+
     def _mark_index_updated_in_redis(self) -> bool:
         """
-        在Redis中标记索引已更新，存储索引元数据和文件修改时间
-        
+        在Redis中标记索引已更新，存储索引元数据和文件修改时间，
+        并通过发布-订阅机制通知其他进程
+
         Returns:
             bool: 是否成功标记
         """
         try:
-            # 获取Redis客户端连接
-            from common.utils.cache_utils import RedisCache
-            
             # 获取索引文件的修改时间
             index_mtime = 0
             mapping_mtime = 0
-            
+
             if os.path.exists(self.index_file):
                 index_mtime = os.path.getmtime(self.index_file)
             if os.path.exists(self.mapping_file):
                 mapping_mtime = os.path.getmtime(self.mapping_file)
-            
+
             # 创建元数据
             meta_data = {
                 "vector_count": self.index.ntotal,
@@ -155,72 +150,103 @@ class VectorDBService:
                 "mapping_mtime": mapping_mtime,
                 "vector_dim": self.vector_dim,
                 "file_path": self.index_file,
-                "mapping_file": self.mapping_file
+                "mapping_file": self.mapping_file,
+                "source_pid": os.getpid(),  # 添加源进程ID用于识别
             }
             meta_bytes = pickle.dumps(meta_data)
-            
+
             # 保存元数据和更新标记到Redis
             meta_key = self._get_redis_key(self.REDIS_META_KEY)
             update_flag_key = self._get_redis_key(self.REDIS_UPDATE_FLAG_KEY)
-            
+
             RedisCache.set(meta_key, meta_bytes, self.REDIS_EXPIRY)
             RedisCache.set(update_flag_key, str(time.time()), self.REDIS_EXPIRY)
+
+            # 通过Redis Pub/Sub发布更新通知
+            update_channel = self._get_redis_key(self.REDIS_UPDATE_CHANNEL)
+            notification = {
+                "timestamp": time.time(),
+                "vector_count": self.index.ntotal,
+                "source_pid": os.getpid(),
+                "embedding_model_version": self.embedding_model_version
+            }
+            
+            # 发布通知
+            RedisCache.publish(update_channel, pickle.dumps(notification))
             
             logger.info(
-                f"索引更新已标记到Redis (模型版本: {self.embedding_model_version})，"
-                f"包含{self.index.ntotal}个向量"
+                f"索引更新已标记到Redis并发布通知 (模型版本: {self.embedding_model_version})，"
+                f"包含{self.index.ntotal}个向量，进程ID: {os.getpid()}"
             )
             return True
         except Exception as e:
             logger.error(f"标记索引更新到Redis失败: {str(e)}")
             return False
-    
+
     def _check_index_updated_in_redis(self) -> bool:
         """
         检查Redis中是否有索引更新标记，以及本地文件是否需要更新
-        
+
         Returns:
             bool: 是否有更新
         """
         try:
-            # 获取Redis客户端
-            from common.utils.cache_utils import RedisCache
-            
             # 获取元数据
             meta_key = self._get_redis_key(self.REDIS_META_KEY)
             meta_bytes = RedisCache.get(meta_key)
-            
+
             if not meta_bytes:
                 return False
-                
+
             try:
                 meta_data = pickle.loads(meta_bytes)
-                redis_index_mtime = meta_data.get('index_mtime', 0)
-                redis_mapping_mtime = meta_data.get('mapping_mtime', 0)
-                
+                redis_index_mtime = meta_data.get("index_mtime", 0)
+                redis_mapping_mtime = meta_data.get("mapping_mtime", 0)
+
                 # 检查本地文件是否存在
                 if not os.path.exists(self.index_file) or not os.path.exists(self.mapping_file):
                     return False
-                
+
                 # 检查本地文件的修改时间是否与Redis中的匹配
                 local_index_mtime = os.path.getmtime(self.index_file)
                 local_mapping_mtime = os.path.getmtime(self.mapping_file)
-                
+
                 # 如果Redis中记录的时间比本地文件更新，则表示有其他进程更新了文件
-                if redis_index_mtime > local_index_mtime or redis_mapping_mtime > local_mapping_mtime:
+                if (
+                    redis_index_mtime > local_index_mtime
+                    or redis_mapping_mtime > local_mapping_mtime
+                ):
                     logger.info(
                         f"检测到索引文件有更新 (模型版本: {self.embedding_model_version})，"
                         f"Redis记录时间: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(redis_index_mtime))}，"
                         f"本地文件时间: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(local_index_mtime))}"
                     )
                     return True
-                    
+
             except Exception as e:
                 logger.error(f"解析索引元数据失败: {str(e)}")
-                
+
             return False
         except Exception as e:
             logger.error(f"检查索引更新失败: {str(e)}")
+            return False
+
+    def _load_index_from_file(self) -> bool:
+        """
+        从文件加载索引到内存
+        
+        Returns:
+            bool: 是否成功加载
+        """
+        try:
+            logger.info(f"从文件加载FAISS索引: {self.index_file}")
+            self.index = faiss.read_index(self.index_file)
+            with open(self.mapping_file, "rb") as f:
+                self.chunk_mapping = pickle.load(f)
+            logger.info(f"已加载FAISS索引，包含{self.index.ntotal}个向量")
+            return True
+        except Exception as e:
+            logger.error(f"加载索引失败: {str(e)}")
             return False
 
     def _init_index(self) -> None:
@@ -228,21 +254,15 @@ class VectorDBService:
         # 1. 检查是否有其他进程更新了索引文件
         if self._check_index_updated_in_redis():
             logger.info("检测到其他进程更新了索引文件，将重新加载")
-            
+
         # 2. 尝试从文件加载
         if os.path.exists(self.index_file) and os.path.exists(self.mapping_file):
-            # 加载现有索引
-            try:
-                logger.info(f"从文件加载FAISS索引: {self.index_file}")
-                self.index = faiss.read_index(self.index_file)
-                with open(self.mapping_file, "rb") as f:
-                    self.chunk_mapping = pickle.load(f)
-                logger.info(f"已加载现有FAISS索引，包含{self.index.ntotal}个向量")
-                
-                # 更新Redis中的标记
-                self._mark_index_updated_in_redis()
-            except Exception as e:
-                logger.error(f"加载索引失败: {str(e)}，将创建新索引")
+            # 使用共享方法加载索引
+            if self._load_index_from_file():
+                logger.info("从文件成功加载索引")
+            else:
+                # 加载失败，创建新索引
+                logger.error("加载索引失败，将创建新索引")
                 self._create_new_index()
         else:
             # 3. 创建新索引
@@ -264,7 +284,7 @@ class VectorDBService:
             with open(self.mapping_file, "wb") as f:
                 pickle.dump(self.chunk_mapping, f)
             logger.info(f"FAISS索引已保存到文件，包含{self.index.ntotal}个向量")
-            
+
             # 更新Redis中的标记
             self._mark_index_updated_in_redis()
         except Exception as e:
@@ -338,7 +358,7 @@ class VectorDBService:
                                 if c.id == chunk_id:
                                     chunk = c
                                     break
-                        
+
                         if chunk:
                             # 更新文档块的向量ID
                             chunk.vector_id = vector_idx
@@ -360,7 +380,7 @@ class VectorDBService:
 
             # 保存索引（同时会标记Redis更新）
             self._save_index()
-            
+
             # 清除查询缓存，因为新的文档可能会影响搜索结果
             self.clear_search_cache()
 
@@ -405,20 +425,22 @@ class VectorDBService:
 
                     # 检查嵌入模型版本是否匹配
                     document = Document.objects.get(id=chunk.document_id)
-                    
+
                     # 如果文档使用的嵌入模型与当前不同，记录并跳过
                     if document.embedding_model_version != self.embedding_model_version:
                         version_mismatch_count += 1
                         continue
 
-                    results.append({
-                        "id": document.id,
-                        "title": document.title,
-                        "content": chunk.content,
-                        "score": float(distances[0][i]),  # 转换numpy.float32为Python float
-                        "chunk_index": chunk.chunk_index,
-                        "embedding_model_version": document.embedding_model_version,
-                    })
+                    results.append(
+                        {
+                            "id": document.id,
+                            "title": document.title,
+                            "content": chunk.content,
+                            "score": float(distances[0][i]),  # 转换numpy.float32为Python float
+                            "chunk_index": chunk.chunk_index,
+                            "embedding_model_version": document.embedding_model_version,
+                        }
+                    )
                 except (DocumentChunk.DoesNotExist, Document.DoesNotExist):
                     # 如果文档块或文档不存在，跳过
                     continue
@@ -433,46 +455,47 @@ class VectorDBService:
             logger.exception(f"搜索失败: {str(e)}")
             return []
 
-    @cached(prefix="vector_search", timeout=60*60)  # 缓存1小时
+    @cached(prefix="vector_search", timeout=60 * 60)  # 缓存1小时
     @staticmethod
-    def search_static(query: str, top_k: int = 5, embedding_model_version=None) -> List[Dict[str, Any]]:
+    def search_static(
+        query: str, top_k: int = 5, embedding_model_version=None
+    ) -> List[Dict[str, Any]]:
         """
         静态方法版本的搜索，方便缓存和共享
-        
+
         Args:
             query: 查询文本
             top_k: 返回结果数量
             embedding_model_version: 嵌入模型版本
-            
+
         Returns:
             检索结果列表
         """
         instance = VectorDBService.get_instance(embedding_model_version=embedding_model_version)
         return instance.search(query, top_k)
-        
+
     @staticmethod
     def clear_search_cache():
         """清除所有向量搜索缓存"""
-        from common.utils.cache_utils import RedisCache
-        
+
         pattern = "smartdocs:cache:vector_search:*"
         count = RedisCache.clear_pattern(pattern)
-        
+
         if count:
             logger.info(f"已清除{count}个向量搜索缓存")
-        
+
         return count
 
     @staticmethod
     def preload_index_async(embedding_model_version=None):
         """
         异步预加载索引，避免阻塞Django启动进程
-        
+
         Args:
             embedding_model_version: 要预加载的嵌入模型版本
         """
         import threading
-        
+
         def _preload_in_thread(model_version):
             try:
                 logger.info(f"开始异步预加载索引 (模型版本: {model_version})...")
@@ -481,13 +504,124 @@ class VectorDBService:
                 logger.info(f"索引异步预加载完成 (模型版本: {model_version})")
             except Exception as e:
                 logger.error(f"索引异步预加载失败: {str(e)}")
-        
+
         # 使用线程异步加载
         thread = threading.Thread(
             target=_preload_in_thread,
             args=(embedding_model_version,),
-            daemon=True  # 设置为守护线程，避免阻止程序退出
+            daemon=True,  # 设置为守护线程，避免阻止程序退出
         )
         thread.start()
-        
+
         return thread  # 返回线程对象，便于测试和管理
+
+    def _start_update_subscriber(self):
+        """启动后台线程订阅Redis更新通知"""
+        if self._subscriber_thread is not None and self._subscriber_thread.is_alive():
+            logger.warning("更新订阅线程已在运行，不重复启动")
+            return
+            
+        # 重置停止标志
+        self._stop_subscriber.clear()
+        
+        # 创建并启动订阅线程
+        self._subscriber_thread = threading.Thread(
+            target=self._update_subscriber_thread,
+            daemon=True,  # 设置为守护线程，避免阻止程序退出
+        )
+        self._subscriber_thread.start()
+        logger.info(f"已启动索引更新订阅线程 (模型版本: {self.embedding_model_version}, 进程ID: {self._pid})")
+    
+    def _update_subscriber_thread(self):
+        """Redis Pub/Sub订阅线程，监听索引更新通知"""
+        try:
+            update_channel = self._get_redis_key(self.REDIS_UPDATE_CHANNEL)
+            logger.info(f"开始监听索引更新通知，频道: {update_channel}")
+            
+            # 使用Redis的pubsub对象进行订阅
+            pubsub = RedisCache.get_pubsub()
+            pubsub.subscribe(update_channel)
+            
+            # 持续监听消息，直到收到停止信号
+            while not self._stop_subscriber.is_set():
+                try:
+                    # 获取消息，设置超时以便定期检查停止标志
+                    message = pubsub.get_message(timeout=1.0)
+                    if message and message['type'] == 'message':
+                        # 处理收到的通知消息
+                        self._handle_update_notification(message['data'])
+                except Exception as e:
+                    logger.error(f"处理订阅消息时出错: {str(e)}")
+                    # 短暂暂停避免CPU占用过高
+                    time.sleep(1)
+                    
+            # 取消订阅并关闭连接
+            pubsub.unsubscribe()
+            pubsub.close()
+            logger.info("索引更新监听线程已停止")
+            
+        except Exception as e:
+            logger.exception(f"索引更新订阅线程异常: {str(e)}")
+    
+    def _handle_update_notification(self, notification_data):
+        """处理收到的索引更新通知"""
+        try:
+            # 解析通知数据
+            notification = pickle.loads(notification_data)
+            source_pid = notification.get("source_pid")
+            
+            # 忽略自己发出的通知
+            if source_pid == self._pid:
+                logger.debug("忽略自己发出的索引更新通知")
+                return
+                
+            logger.info(
+                f"收到索引更新通知 (来源进程: {source_pid}, "
+                f"向量数量: {notification.get('vector_count')}, "
+                f"时间戳: {notification.get('timestamp')})"
+            )
+            
+            # 重新加载索引
+            self.reload_index()
+            
+        except Exception as e:
+            logger.error(f"处理索引更新通知时出错: {str(e)}")
+    
+    def reload_index(self):
+        """重新加载索引文件"""
+        try:
+            logger.info(f"开始重新加载索引文件: {self.index_file}")
+            
+            if not os.path.exists(self.index_file) or not os.path.exists(self.mapping_file):
+                logger.warning("索引文件不存在，无法重新加载")
+                return False
+            
+            # 使用共享方法加载索引
+            if self._load_index_from_file():
+                # 清除搜索缓存确保使用新索引
+                self.clear_search_cache()
+                logger.info("索引重新加载完成并清除搜索缓存")
+                return True
+            else:
+                return False
+                
+        except Exception as e:
+            logger.exception(f"重新加载索引时异常: {str(e)}")
+            return False
+            
+    def __del__(self):
+        """析构函数，确保清理资源"""
+        try:
+            # 停止订阅线程
+            if hasattr(self, '_stop_subscriber'):
+                self._stop_subscriber.set()
+                
+            # 等待线程结束，但设置较短的超时时间
+            if hasattr(self, '_subscriber_thread') and self._subscriber_thread:
+                if self._subscriber_thread.is_alive():
+                    logger.info("等待索引更新订阅线程结束...")
+                    self._subscriber_thread.join(timeout=2.0)
+                    
+            logger.info(f"VectorDBService实例清理完成 (模型版本: {self.embedding_model_version})")
+        except Exception as e:
+            logger.error(f"VectorDBService清理资源时出错: {str(e)}")
