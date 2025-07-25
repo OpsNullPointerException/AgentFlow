@@ -510,8 +510,29 @@ const app = createApp({
                 });
                 console.log("发送消息响应:", response.data);
                 
+                // 处理响应数据
+                let processedResponse = {...response.data};
+                
+                // 如果有文档引用，统一格式
+                if (processedResponse.referenced_documents && processedResponse.referenced_documents.length > 0) {
+                    console.log("处理非流式响应的文档引用，原始:", processedResponse.referenced_documents);
+                    
+                    // 转换格式，保持与流式响应一致
+                    processedResponse.referenced_documents = processedResponse.referenced_documents.map(doc => {
+                        return {
+                            document_id: doc.id, // 将id转为document_id
+                            title: doc.title,
+                            relevance_score: doc.relevance_score,
+                            // 如果没有content_preview，添加一个默认值
+                            content_preview: doc.content_preview || `文档ID: ${doc.id}, 标题: ${doc.title}`
+                        };
+                    });
+                    
+                    console.log("处理非流式响应的文档引用，转换后:", processedResponse.referenced_documents);
+                }
+                
                 // 添加助手回复
-                messages.value.push(response.data);
+                messages.value.push(processedResponse);
                 
                 // 只有在用户未手动滚动时才滚动到底部
                 scrollToBottom();
@@ -598,9 +619,21 @@ const app = createApp({
                                 content: updatedContent
                             };
                             
-                            // 如果有引用文档，更新
+                            // 如果有引用文档，更新（并进行去重）
                             if (data.referenced_documents && data.referenced_documents.length > 0) {
-                                updatedMessage.referenced_documents = data.referenced_documents;
+                                // 按文档ID进行去重
+                                const uniqueDocs = {};
+                                data.referenced_documents.forEach(doc => {
+                                    // 如果文档ID不存在或当前文档的相关度更高，则使用这个文档
+                                    if (!uniqueDocs[doc.document_id] ||
+                                        uniqueDocs[doc.document_id].relevance_score < doc.relevance_score) {
+                                        uniqueDocs[doc.document_id] = doc;
+                                    }
+                                });
+                                
+                                // 转换回数组并按相关度分数排序
+                                updatedMessage.referenced_documents = Object.values(uniqueDocs)
+                                    .sort((a, b) => b.relevance_score - a.relevance_score);
                             }
                             
                             // 更新消息ID (从临时ID更新为服务器分配的ID)
@@ -726,6 +759,17 @@ const app = createApp({
             }
             
             uploadForm.file = file;
+            
+            // 从文件名中提取不含扩展名的部分作为标题
+            const fileName = file.name;
+            const fileNameWithoutExt = fileName.substring(0, fileName.lastIndexOf('.')) || fileName;
+            
+            // 自动设置标题（如果用户尚未输入）
+            if (!uploadForm.title) {
+                uploadForm.title = fileNameWithoutExt;
+                console.log(`自动设置标题: ${uploadForm.title}`);
+            }
+            
             return false; // 阻止自动上传
         };
         

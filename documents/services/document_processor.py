@@ -18,14 +18,14 @@ class DocumentProcessor:
     def __init__(self, embedding_model_version=None):
         """
         初始化文档处理器
-        
+
         Args:
             embedding_model_version: 嵌入模型版本，如果未指定则使用settings中的配置
         """
         # 记录使用的嵌入模型版本
         self.embedding_model_version = embedding_model_version or settings.EMBEDDING_MODEL_VERSION
         logger.info(f"初始化DocumentProcessor，使用嵌入模型: {self.embedding_model_version}")
-        
+
         # 初始化向量数据库服务，传递模型版本
         self.vector_db = VectorDBService(embedding_model_version=self.embedding_model_version)
         self.max_content_size = 5 * 1024 * 1024  # 5MB最大处理内容限制
@@ -34,12 +34,12 @@ class DocumentProcessor:
         """处理文档，解析内容并分块，然后索引"""
         try:
             document = Document.objects.get(id=document_id)
-            
+
             # 设置文档处理状态和使用的嵌入模型版本
             document.status = "processing"
             document.embedding_model_version = self.embedding_model_version
             document.save()
-            
+
             logger.info(f"处理文档{document_id}，使用嵌入模型版本: {self.embedding_model_version}")
 
             # 文件检查
@@ -72,7 +72,7 @@ class DocumentProcessor:
             if indexing_result:
                 document.status = "processed"
                 document.save()
-                
+
                 # 清除所有向量搜索缓存，因为新文档可能影响搜索结果
                 VectorDBService.clear_search_cache()
                 logger.info(f"文档{document_id}处理完成，已清除搜索缓存")
@@ -109,9 +109,9 @@ class DocumentProcessor:
         """流式提取文本，避免一次性加载大文件"""
         file_path = document.file.path
         file_size = os.path.getsize(file_path) / (1024 * 1024)  # MB
-        
+
         # 获取原始文件名
-        original_filename = os.path.basename(document.file.name)
+        original_filename = document.title
         logger.info(f"处理文件{original_filename}，路径: {file_path}，大小: {file_size:.2f}MB")
 
         # 提取文本内容
@@ -124,7 +124,7 @@ class DocumentProcessor:
             content = self._extract_text_from_txt_stream(file_path)
         else:
             raise ValueError(f"不支持的文件类型: {document.file_type}")
-            
+
         # 在内容前添加文件名信息，以便在索引和搜索中包含文件名
         file_info = f"文件名: {original_filename}\n标题: {document.title}\n\n"
         return file_info + content
@@ -187,13 +187,37 @@ class DocumentProcessor:
         # 1. 先删除现有分块
         DocumentChunk.objects.filter(document_id=document.id).delete()
 
-        # 2. 分块处理
-        chunk_size = 500  # 减小单块大小
-        chunks = self._chunk_text(content, chunk_size)
+        # 2. 根据文档类型和内容选择合适的分块策略和大小
+        file_extension = document.file_type.lower() if document.file_type else "txt"
+
+        # 根据文件类型和文档大小选择最佳策略
+        if len(content) > 100000:  # 大文档 (100KB+)
+            strategy = "auto"  # 自动选择最佳策略
+            chunk_size = 800  # 较大块，减少块数量
+            logger.info(f"文档{document.id}较大({len(content) / 1024:.1f}KB)，使用自动分块策略")
+        elif file_extension in ["pdf", "docx"] and len(content) > 10000:
+            strategy = "semantic"  # 结构化文档使用语义分块
+            chunk_size = 1000
+            logger.info(f"文档{document.id}为结构化文档，使用语义分块")
+        elif "\n\n" in content[:5000]:  # 检查是否有明显的段落
+            strategy = "paragraph"
+            chunk_size = 800
+            logger.info(f"文档{document.id}有明显段落结构，使用段落分块")
+        else:
+            strategy = "simple"  # 短文本或无明显结构
+            chunk_size = 500
+            logger.info(f"文档{document.id}为简单文本，使用简单分块")
+
+        # 执行分块
+        logger.info(f"开始对文档{document.id}进行分块，策略:{strategy}，块大小:{chunk_size}")
+        chunks = self._chunk_text(content, chunk_size=chunk_size, strategy=strategy)
+        logger.info(f"文档{document.id}分块完成，共{len(chunks)}个块")
 
         # 3. 批量保存分块
         batch_size = 20
         total_chunks = len(chunks)
+        metadata = {"chunking_strategy": strategy, "chunk_size": chunk_size}
+
         for i in range(0, total_chunks, batch_size):
             batch = chunks[i : i + batch_size]
             chunk_objects = []
@@ -205,7 +229,7 @@ class DocumentProcessor:
                         content=chunk_content,
                         chunk_index=i + idx,
                         # 保存使用的嵌入模型版本
-                        embedding_model_version=self.embedding_model_version
+                        embedding_model_version=self.embedding_model_version,
                     )
                 )
 
@@ -218,59 +242,55 @@ class DocumentProcessor:
             # 释放内存
             del chunk_objects
             gc.collect()
-    #TODO 分块算法待优化
+
+    # 使用策略模式的分块算法
     def _chunk_text(
         self,
         text: str,
         chunk_size: int = 500,
         overlap_ratio: float = 0.1,
         lookback_ratio: float = 0.1,
+        strategy: str = "auto",
     ) -> List[str]:
         """
-        将文本分块，使用参数化的重叠和回溯比例
+        将文本分块，支持多种分块策略
 
         Args:
             text: 要分块的文本
             chunk_size: 每块的目标大小
             overlap_ratio: 块间重叠比例(默认10%)
             lookback_ratio: 寻找断点时的最大回溯比例(默认10%)
+            strategy: 分块策略 ("simple", "paragraph", "semantic", "auto")
         """
-        overlap = int(chunk_size * overlap_ratio)
-        lookback = int(chunk_size * lookback_ratio)
-        chunks = []
+        # 导入策略模式相关类
+        from .chunking_strategies import ChunkingStrategyFactory
+
         if not text:
-            return chunks
+            return []
 
-        start = 0
-        while start < len(text):
-            end = min(start + chunk_size, len(text))
+        # 使用工厂创建合适的策略对象
+        if strategy == "auto":
+            chunking_strategy = ChunkingStrategyFactory.select_best_strategy(text)
+            logger.info(f"自动选择分块策略: {chunking_strategy.get_name()}")
+        else:
+            chunking_strategy = ChunkingStrategyFactory.create_strategy(strategy)
+            logger.info(f"使用指定分块策略: {chunking_strategy.get_name()}")
 
-            # 寻找自然断点
-            if end < len(text):
-                found_breakpoint = False
-                for i in range(end - 1, max(start, end - lookback), -1):
-                    if i < len(text) and text[i] in [".", "!", "?", "\n"]:
-                        end = i + 1
-                        found_breakpoint = True
-                        break
+        # 调用策略对象的分块方法
+        return chunking_strategy.chunk_text(
+            text, chunk_size, overlap_ratio=overlap_ratio, lookback_ratio=lookback_ratio
+        )
 
-            # 添加当前块
-            current_chunk = text[start:end]
-            chunks.append(current_chunk)
+    # _select_chunking_strategy 方法已移至 ChunkingStrategyFactory 类
 
-            # 确保起始点前进
-            new_start = end - overlap
-            # 防止无限循环：如果新起点不前进，则强制前进
-            if new_start <= start:
-                new_start = start + 1
-            start = min(new_start, len(text))
+    # _detect_structure 方法已移至 chunking_strategies.py
 
-            # 如果已经处理到文本末尾，退出循环
-            if end >= len(text):
-                break
+    # _split_paragraphs 方法已移至 chunking_strategies.py
 
-            # 调试日志
-            if len(chunks) % 50 == 0:
-                logger.debug(f"已处理{len(chunks)}个块，当前位置: {start}/{len(text)}")
+    # _simple_chunk 方法已移至 SimpleChunkingStrategy 类
 
-        return chunks
+    # _paragraph_chunk 方法已移至 ParagraphChunkingStrategy 类
+
+    # _semantic_chunk 方法已移至 SemanticChunkingStrategy 类
+
+    # _extract_document_structure 方法已移至 SemanticChunkingStrategy 类

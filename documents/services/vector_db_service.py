@@ -1,7 +1,7 @@
 import os
 import numpy as np
 import faiss
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Self
 from loguru import logger
 from django.conf import settings
 import pickle
@@ -37,7 +37,7 @@ class VectorDBService:
     REDIS_UPDATE_CHANNEL = "smartdocs:faiss:update_channel:{}"  # 索引更新通知频道
 
     @classmethod
-    def get_instance(cls, embedding_model_version=None):
+    def get_instance(cls, embedding_model_version=None)-> Self:
         """
         获取单例实例，确保相同嵌入模型版本只有一个实例
 

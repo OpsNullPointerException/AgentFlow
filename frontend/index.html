@@ -297,11 +297,12 @@
                                     <div v-if="message.referenced_documents && message.referenced_documents.length > 0"
                                         class="references">
                                         <div class="references-header">参考文档：</div>
-                                        <div v-for="ref in message.referenced_documents" :key="ref.id"
+                                        <div v-for="ref in message.referenced_documents" :key="ref.document_id"
                                             class="reference-item">
                                             <div class="reference-title">{{ ref.title }}</div>
                                             <div class="reference-score">相关度: {{ (ref.relevance_score * 100).toFixed(0)
                                                 }}%</div>
+                                            <div class="reference-preview" v-if="ref.content_preview">{{ ref.content_preview }}</div>
                                         </div>
                                     </div>
                                 </div>

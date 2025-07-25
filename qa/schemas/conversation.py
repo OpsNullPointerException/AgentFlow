@@ -12,10 +12,11 @@ class MessageIn(Schema):
 
 class DocumentReferenceOut(Schema):
     """文档引用输出Schema"""
-    id: int
+    document_id: int  # 文档ID
     title: str
+    content_preview: Optional[str] = None  # 添加可选的content_preview字段
     relevance_score: float
-    chunk_indices: List[int]
+    chunk_indices: List[int] = []  # 设置默认为空列表
 
 class MessageOut(Schema):
     """消息输出Schema"""
