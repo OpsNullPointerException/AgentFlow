@@ -32,12 +32,12 @@ class VectorDBService:
     REDIS_META_KEY = "smartdocs:faiss:meta:{}"  # 用于存储元数据
     REDIS_UPDATE_FLAG_KEY = "smartdocs:faiss:updated:{}"  # 用于标记索引更新
     REDIS_EXPIRY = 60 * 60 * 24 * 7  # 7天过期
-    
+
     # Redis Pub/Sub频道
     REDIS_UPDATE_CHANNEL = "smartdocs:faiss:update_channel:{}"  # 索引更新通知频道
 
     @classmethod
-    def get_instance(cls, embedding_model_version=None)-> Self:
+    def get_instance(cls, embedding_model_version=None) -> Self:
         """
         获取单例实例，确保相同嵌入模型版本只有一个实例
 
@@ -105,7 +105,7 @@ class VectorDBService:
 
         # 确保向量库目录存在
         Path(self.vector_store_path).mkdir(parents=True, exist_ok=True)
-        
+
         # Pub/Sub通知相关
         self._subscriber_thread = None
         self._stop_subscriber = threading.Event()
@@ -113,7 +113,7 @@ class VectorDBService:
 
         # 初始化或加载索引
         self._init_index()
-        
+
         # 启动索引更新通知订阅
         self._start_update_subscriber()
 
@@ -168,12 +168,12 @@ class VectorDBService:
                 "timestamp": time.time(),
                 "vector_count": self.index.ntotal,
                 "source_pid": os.getpid(),
-                "embedding_model_version": self.embedding_model_version
+                "embedding_model_version": self.embedding_model_version,
             }
-            
+
             # 发布通知
             RedisCache.publish(update_channel, pickle.dumps(notification))
-            
+
             logger.info(
                 f"索引更新已标记到Redis并发布通知 (模型版本: {self.embedding_model_version})，"
                 f"包含{self.index.ntotal}个向量，进程ID: {os.getpid()}"
@@ -234,7 +234,7 @@ class VectorDBService:
     def _load_index_from_file(self) -> bool:
         """
         从文件加载索引到内存
-        
+
         Returns:
             bool: 是否成功加载
         """
@@ -416,6 +416,7 @@ class VectorDBService:
                     continue
 
                 chunk_id = self.chunk_mapping.get(int(idx))
+                logger.info(f"chunk_id: {chunk_id}")
                 if chunk_id is None:
                     continue
 
@@ -425,6 +426,10 @@ class VectorDBService:
 
                     # 检查嵌入模型版本是否匹配
                     document = Document.objects.get(id=chunk.document_id)
+
+                    # 如果文档已被删除，跳过
+                    if document.is_deleted:
+                        continue
 
                     # 如果文档使用的嵌入模型与当前不同，记录并跳过
                     if document.embedding_model_version != self.embedding_model_version:
@@ -520,82 +525,84 @@ class VectorDBService:
         if self._subscriber_thread is not None and self._subscriber_thread.is_alive():
             logger.warning("更新订阅线程已在运行，不重复启动")
             return
-            
+
         # 重置停止标志
         self._stop_subscriber.clear()
-        
+
         # 创建并启动订阅线程
         self._subscriber_thread = threading.Thread(
             target=self._update_subscriber_thread,
             daemon=True,  # 设置为守护线程，避免阻止程序退出
         )
         self._subscriber_thread.start()
-        logger.info(f"已启动索引更新订阅线程 (模型版本: {self.embedding_model_version}, 进程ID: {self._pid})")
-    
+        logger.info(
+            f"已启动索引更新订阅线程 (模型版本: {self.embedding_model_version}, 进程ID: {self._pid})"
+        )
+
     def _update_subscriber_thread(self):
         """Redis Pub/Sub订阅线程，监听索引更新通知"""
         try:
             update_channel = self._get_redis_key(self.REDIS_UPDATE_CHANNEL)
             logger.info(f"开始监听索引更新通知，频道: {update_channel}")
-            
+
             # 使用Redis的pubsub对象进行订阅
             pubsub = RedisCache.get_pubsub()
             pubsub.subscribe(update_channel)
-            
+
             # 持续监听消息，直到收到停止信号
             while not self._stop_subscriber.is_set():
                 try:
                     # 获取消息，设置超时以便定期检查停止标志
                     message = pubsub.get_message(timeout=1.0)
-                    if message and message['type'] == 'message':
+                    if message and message["type"] == "message":
                         # 处理收到的通知消息
-                        self._handle_update_notification(message['data'])
+                        self._handle_update_notification(message["data"])
                 except Exception as e:
                     logger.error(f"处理订阅消息时出错: {str(e)}")
                     # 短暂暂停避免CPU占用过高
                     time.sleep(1)
-                    
+
             # 取消订阅并关闭连接
             pubsub.unsubscribe()
             pubsub.close()
             logger.info("索引更新监听线程已停止")
-            
+
         except Exception as e:
             logger.exception(f"索引更新订阅线程异常: {str(e)}")
-    
+
     def _handle_update_notification(self, notification_data):
         """处理收到的索引更新通知"""
         try:
             # 解析通知数据
             notification = pickle.loads(notification_data)
             source_pid = notification.get("source_pid")
-            
+
             # 忽略自己发出的通知
             if source_pid == self._pid:
                 logger.debug("忽略自己发出的索引更新通知")
                 return
-                
+
             logger.info(
                 f"收到索引更新通知 (来源进程: {source_pid}, "
                 f"向量数量: {notification.get('vector_count')}, "
                 f"时间戳: {notification.get('timestamp')})"
             )
-            
+
             # 重新加载索引
             self.reload_index()
-            
+
         except Exception as e:
             logger.error(f"处理索引更新通知时出错: {str(e)}")
-    
+
     def reload_index(self):
         """重新加载索引文件"""
         try:
             logger.info(f"开始重新加载索引文件: {self.index_file}")
-            
+
             if not os.path.exists(self.index_file) or not os.path.exists(self.mapping_file):
                 logger.warning("索引文件不存在，无法重新加载")
                 return False
-            
+
             # 使用共享方法加载索引
             if self._load_index_from_file():
                 # 清除搜索缓存确保使用新索引
@@ -604,24 +611,24 @@ class VectorDBService:
                 return True
             else:
                 return False
-                
+
         except Exception as e:
             logger.exception(f"重新加载索引时异常: {str(e)}")
             return False
-            
+
     def __del__(self):
         """析构函数，确保清理资源"""
         try:
             # 停止订阅线程
-            if hasattr(self, '_stop_subscriber'):
+            if hasattr(self, "_stop_subscriber"):
                 self._stop_subscriber.set()
-                
+
             # 等待线程结束，但设置较短的超时时间
-            if hasattr(self, '_subscriber_thread') and self._subscriber_thread:
+            if hasattr(self, "_subscriber_thread") and self._subscriber_thread:
                 if self._subscriber_thread.is_alive():
                     logger.info("等待索引更新订阅线程结束...")
                     self._subscriber_thread.join(timeout=2.0)
-                    
+
             logger.info(f"VectorDBService实例清理完成 (模型版本: {self.embedding_model_version})")
         except Exception as e:
             logger.error(f"VectorDBService清理资源时出错: {str(e)}")

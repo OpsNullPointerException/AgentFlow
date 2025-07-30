@@ -141,6 +141,59 @@
             height: 2px;
             background-color: #1890ff;
         }
+
+        /* 文档列表样式 */
+        .document-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            padding: 8px 0;
+            position: relative;
+        }
+
+        .document-info {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-width: 0; /* 允许缩小 */
+            padding-right: 30px; /* 为删除按钮预留空间 */
+        }
+
+        .document-title {
+            font-weight: 500;
+            color: #333;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            line-height: 1.3;
+        }
+
+        .document-type {
+            font-size: 12px;
+            color: #999;
+            margin-top: 2px;
+        }
+
+        .document-actions {
+            position: absolute;
+            right: 0;
+            top: 8px;
+            opacity: 0;
+            transition: opacity 0.2s;
+            flex-shrink: 0; /* 防止缩小 */
+        }
+
+        .document-item:hover .document-actions {
+            opacity: 1;
+        }
+
+        .delete-doc-btn {
+            width: 20px !important;
+            height: 20px !important;
+            padding: 0 !important;
+            font-size: 14px !important;
+            line-height: 1 !important;
+            min-width: 20px !important;
+        }
     </style>
     <!-- 引入Vue.js (本地资源) -->
     <script src="{% static 'static/js/vue.global.prod.js' %}"></script>
@@ -267,8 +320,19 @@
                         <ul class="document-list">
                             <li v-for="doc in documents" :key="doc.id">
                                 <div class="document-item">
-                                    <span class="document-title">{{ doc.title }}</span>
-                                    <span class="document-type">{{ doc.file_type }}</span>
+                                    <div class="document-info">
+                                        <span class="document-title">{{ doc.title }}</span>
+                                        <span class="document-type">{{ doc.file_type }}</span>
+                                    </div>
+                                    <div class="document-actions">
+                                        <el-tooltip content="删除文档" placement="top">
+                                            <el-button size="mini" type="danger"
+                                                @click.stop="deleteDocument(doc.id, doc.title)"
+                                                class="delete-doc-btn">
+                                                ×
+                                            </el-button>
+                                        </el-tooltip>
+                                    </div>
                                 </div>
                             </li>
                         </ul>

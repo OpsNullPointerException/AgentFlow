@@ -16,6 +16,16 @@ class DocumentOut(Schema):
     status: str
     created_at: datetime
     updated_at: datetime
+    task_id: Optional[str] = None
+
+
+class TaskStatusOut(Schema):
+    """任务状态输出Schema"""
+    task_id: Optional[str] = None
+    status: str
+    document_status: str
+    result: Optional[dict] = None
+
 
 class DocumentChunkOut(Schema):
     """返回给前端的文档块Schema"""

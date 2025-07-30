@@ -872,6 +872,40 @@ const app = createApp({
             }
         };
         
+        // 删除文档
+        const deleteDocument = async (documentId, documentTitle) => {
+            console.log("尝试删除文档，ID:", documentId, "标题:", documentTitle);
+            
+            // 显示确认对话框
+            ElementPlus.ElMessageBox.confirm(
+                `确定要删除文档"${documentTitle}"吗？删除后将无法恢复。`,
+                '删除确认',
+                {
+                    confirmButtonText: '确定删除',
+                    cancelButtonText: '取消',
+                    type: 'warning',
+                }
+            ).then(async () => {
+                // 用户确认删除
+                try {
+                    console.log("确认删除文档，ID:", documentId);
+                    await http.delete(`/api/documents/${documentId}`);
+                    
+                    // 从列表中移除
+                    documents.value = documents.value.filter(doc => doc.id !== documentId);
+                    
+                    ElementPlus.ElMessage.success('文档已删除');
+                } catch (error) {
+                    console.error('删除文档失败', error);
+                    ElementPlus.ElMessage.error('删除文档失败: ' + (error.response?.data?.detail || error.message));
+                }
+            }).catch(() => {
+                // 用户取消删除
+                console.log("用户取消删除文档");
+                ElementPlus.ElMessage.info('已取消删除');
+            });
+        };
+        
         return {
             isLoggedIn,
             userInfo,
@@ -913,7 +947,8 @@ const app = createApp({
             searchDocuments,
             handleMessageKeydown,
             formatDate,
-            renderMarkdown     // 新增：Markdown渲染函数
+            renderMarkdown,     // 新增：Markdown渲染函数
+            deleteDocument      // 新增：删除文档函数
         };
     }
 });
