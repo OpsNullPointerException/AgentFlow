@@ -11,7 +11,7 @@ services:
     ports:
       - "5432:5432"  # 使用默认PostgreSQL端口
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - ./data/postgres:/var/lib/postgresql/data
     restart: unless-stopped
 
   redis:
@@ -23,7 +23,7 @@ services:
     ports:
       - "6379:6379"  # 标准Redis端口
     volumes:
-      - redis_data:/data
+      - ./data/redis:/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -31,6 +31,6 @@ services:
       timeout: 3s
       retries: 5
 
-volumes:
-  postgres_data:
-  redis_data:
+# volumes:
+#   postgres_data:
+#   redis_data:

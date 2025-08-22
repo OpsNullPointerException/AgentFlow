@@ -51,9 +51,9 @@ def create_message(request, conversation_id: int, data: MessageIn):
 
 @router.get("/conversations/{conversation_id}/messages/stream", auth=None, response=None)
 def create_message_stream(request, conversation_id: int):
-    """向对话中添加新消息并获取流式回复（SSE）- GET方法用于EventSource"""
+    """SSE流式对话接口 - 实现AI回复的实时逐字符显示"""
 
-    # 从查询参数中获取内容、令牌和模型
+    # 从查询参数中获取内容、令牌和模型（SSE使用GET请求）
     message_content = request.GET.get("content", "")
     token = request.GET.get("token", "")
     model = request.GET.get("model", "qwen-turbo")  # 默认使用qwen-turbo
@@ -74,17 +74,17 @@ def create_message_stream(request, conversation_id: int):
     # 使用ConversationService处理流式响应
     conversation_service = ConversationService()
 
-    # 返回流式响应
+    # 创建SSE流式响应，使用生成器逐步产生数据
     response = StreamingHttpResponse(
         conversation_service.create_message_stream(
             conversation_id=conversation_id, user_id=user.id, content=message_content, model=model
         ),
-        content_type="text/event-stream",
+        content_type="text/event-stream",  # SSE必须的MIME类型
     )
 
-    # 添加SSE所需的响应头
-    response["Cache-Control"] = "no-cache"
-    response["X-Accel-Buffering"] = "no"  # 禁用Nginx缓冲
+    # 添加SSE所需的响应头，确保实时传输
+    response["Cache-Control"] = "no-cache"        # 禁止缓存
+    response["X-Accel-Buffering"] = "no"         # 禁用Nginx缓冲
     return response
 
 

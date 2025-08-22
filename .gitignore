@@ -16,3 +16,6 @@ logs/*
 media/
 .vscode/
 .idea/
+docs/
+tests/
+validation_datasets/

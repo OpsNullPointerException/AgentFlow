@@ -1,10 +1,16 @@
 from loguru import logger
-from typing import List, Dict, Any, Generator
+from typing import List, Dict, Any, Generator, Protocol
 from django.conf import settings
 import dashscope
 from dashscope.aigc.generation import Generation
 import requests.exceptions
 from common.utils.retry_utils import retry, log_retry, RetryableError
+
+# LLM接口协议
+class LLMProtocol(Protocol):
+    """LLM接口协议，用于类型提示"""
+    def __call__(self, prompt: str) -> str: ...
+    def predict(self, text: str) -> str: ...
 
 # 定义可重试的错误类型
 class LLMAPIError(RetryableError):
@@ -44,7 +50,7 @@ class LLMService:
         exceptions=[LLMAPIError, requests.exceptions.RequestException],
         on_retry=log_retry
     )
-    def generate_response(self, query: str, context: str, conversation_history: List[Dict[str, str]] = None) -> Dict[str, Any]:
+    def generate_response(self, query: str, context: str, conversation_history: list[dict[str, str]] | None = None) -> dict[str, Any]:
         """
         调用千问大模型生成回答
         
@@ -62,16 +68,21 @@ class LLMService:
             
         try:
             # 构建提示词
-            system_prompt = "你是一个智能助手，可以根据提供的文档回答问题。请只根据提供的上下文信息回答问题，如果上下文中没有相关信息，请直接说不知道。"
+            system_prompt = """你是一个智能助手，可以根据提供的文档和对话历史回答问题。
+                                回答规则：
+                                1. 如果问题与对话历史中的信息相关（如用户之前提到的个人信息），优先使用对话历史回答
+                                2. 如果问题需要查找具体的文档知识，使用提供的上下文信息回答
+                                3. 可以结合对话历史和文档上下文提供更完整的回答
+                                4. 如果对话历史和文档上下文都没有相关信息，请直接说不知道
+
+                                请保持友好和自然的对话风格。"""
             
             # 构建消息历史
             messages = [{"role": "system", "content": system_prompt}]
             
-            # 添加对话历史（如果有）
+            # 添加对话历史（如果有）- LangChain Memory已经处理好了策略
             if conversation_history and len(conversation_history) > 0:
-                # 只使用最近的5轮对话
-                recent_history = conversation_history[-5:] if len(conversation_history) > 5 else conversation_history
-                messages.extend(recent_history)
+                messages.extend(conversation_history)
             
             # 添加上下文和当前查询
             user_prompt = f"以下是相关文档内容：\n\n{context}\n\n我的问题是：{query}"
@@ -119,7 +130,7 @@ class LLMService:
         exceptions=[LLMAPIError, requests.exceptions.RequestException],
         on_retry=log_retry
     )
-    def generate_response_stream(self, query: str, context: str, conversation_history: List[Dict[str, str]] = None, model: str = None) -> Generator:
+    def generate_response_stream(self, query: str, context: str, conversation_history: List[Dict[str, str]] = None, model: str | None = None) -> Generator:
         """
         流式生成回答，边生成边返回
         
@@ -139,16 +150,15 @@ class LLMService:
             
         try:
             # 构建提示词
-            system_prompt = "你是一个智能助手，可以根据提供的文档回答问题。请只根据提供的上下文信息回答问题，如果上下文中没有相关信息，请直接说不知道。"
+            system_prompt = "你是一个智能助手，可以根据提供的文档回答问题。\
+            请只根据提供的上下文信息回答问题，如果上下文中没有相关信息，请直接说不知道。"
             
             # 构建消息历史
             messages = [{"role": "system", "content": system_prompt}]
             
-            # 添加对话历史（如果有）
+            # 添加对话历史（如果有）- LangChain Memory已经处理好了策略
             if conversation_history and len(conversation_history) > 0:
-                # 只使用最近的5轮对话
-                recent_history = conversation_history[-5:] if len(conversation_history) > 5 else conversation_history
-                messages.extend(recent_history)
+                messages.extend(conversation_history)
             
             # 添加上下文和当前查询
             user_prompt = f"以下是相关文档内容：\n\n{context}\n\n我的问题是：{query}"
@@ -172,7 +182,7 @@ class LLMService:
             # 处理流式响应
             full_content = ""
             chunk_count = 0
-            logger.info(f"开始处理流式响应...")
+            logger.info("开始处理流式响应...")
             
             for chunk in response:
                 chunk_count += 1
@@ -181,23 +191,29 @@ class LLMService:
                 if chunk.status_code == 200:
                     if hasattr(chunk.output, 'choices') and len(chunk.output.choices) > 0:
                         choice = chunk.output.choices[0]
-                        if 'message' in choice and 'content' in choice['message']:
-                            content = choice['message']['content']
-                            # 增量内容
-                            delta = content[len(full_content):]
-                            full_content = content
-                            
-                            # 记录增量内容
-                            delta_preview = delta if len(delta) < 50 else delta[:50] + "..."
-                            logger.debug(f"增量内容 #{chunk_count}: {delta_preview}")
-                            
-                            result = {
-                                "answer_delta": delta,
-                                "finished": False,
-                                "model": model_to_use
-                            }
-                            logger.debug(f"生成数据: {result}")
-                            yield result
+                        
+                        # 千问API流式响应格式：choice.message.content包含累积的完整内容
+                        if hasattr(choice, 'message') and hasattr(choice.message, 'content'):
+                            content = choice.message.content
+                            # 计算增量内容
+                            if content and len(content) > len(full_content):
+                                delta = content[len(full_content):]
+                                full_content = content
+                                
+                                # 记录增量内容
+                                delta_preview = delta if len(delta) < 50 else delta[:50] + "..."
+                                logger.debug(f"增量内容 #{chunk_count}: {delta_preview}")
+                                
+                                result = {
+                                    "answer_delta": delta,
+                                    "finished": False,
+                                    "model": model_to_use
+                                }
+                                logger.debug(f"生成数据: {result}")
+                                yield result
+                            elif not content:
+                                # 空内容，可能是开始或中间的信号块
+                                logger.debug(f"收到空内容块 #{chunk_count}")
                         else:
                             logger.warning(f"响应块#{chunk_count}缺少message.content字段")
                     else:
@@ -229,8 +245,39 @@ class LLMService:
             }
             
     @staticmethod
-    def generate_response_static(query: str, context: str, conversation_history: List[Dict[str, str]] = None) -> str:
+    def generate_response_static(query: str, context: str, conversation_history: list[dict[str, str]] | None = None) -> str:
         """静态方法版本，适用于简单调用"""
         service = LLMService(model_name="qwen-turbo")  # 使用更快的模型
         result = service.generate_response(query, context, conversation_history)
         return result["answer"]
+
+    def get_llm_instance(self) -> LLMProtocol:
+        """获取LLM实例，用于LangChain Memory"""
+        try:
+            from dashscope.llms import Generation
+            # 返回一个简单的包装器，满足LangChain接口
+            class QwenLLMWrapper:
+                def __call__(self, prompt: str) -> str:
+                    response = Generation.call(
+                        model="qwen-turbo",
+                        prompt=prompt,
+                        max_tokens=500,
+                        temperature=0.3
+                    )
+                    if response.status_code == 200:
+                        return response.output.text
+                    return "摘要生成失败"
+                    
+                def predict(self, text: str) -> str:
+                    return self.__call__(text)
+                    
+            return QwenLLMWrapper()
+        except Exception as e:
+            logger.warning(f"创建LLM实例失败: {e}")
+            # 返回一个简单的mock实例
+            class MockLLM:
+                def __call__(self, prompt: str) -> str:
+                    return "无法生成摘要"
+                def predict(self, text: str) -> str:
+                    return "无法生成摘要"
+            return MockLLM()

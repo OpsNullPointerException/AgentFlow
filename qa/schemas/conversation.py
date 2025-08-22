@@ -44,3 +44,20 @@ class MessageStreamOut(Schema):
     error: bool = False
     error_message: str = ""
     model: str = ""
+
+class MemoryInfoOut(Schema):
+    """记忆信息输出Schema"""
+    message_count: int
+    memory_type: str
+    window_size: Optional[int] = None
+
+class QueryResponseOut(Schema):
+    """查询响应输出Schema"""
+    answer: str
+    referenced_documents: list[DocumentReferenceOut] = []
+    memory_info: dict[str, MemoryInfoOut] = {}
+    memory_type: str = "buffer_window"
+    error: bool = False
+    conversation_id: Optional[int] = None
+    tokens_used: Optional[int] = None
+    model: Optional[str] = None

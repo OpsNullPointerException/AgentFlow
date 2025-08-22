@@ -27,9 +27,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get(
-    "SECRET_KEY", "django-insecure-$m!b2btq33)l7@6lyhw^vc=x^(@6v9wfo=8@o25=o6@e%-2b!@"
-)
+SECRET_KEY = os.environ.get("SECRET_KEY", "django-insecure-$m!b2btq33)l7@6lyhw^vc=x^(@6v9wfo=8@o25=o6@e%-2b!@")
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get("DEBUG", "True").lower() == "true"
@@ -167,7 +165,7 @@ DASHSCOPE_API_KEY = os.environ.get("DASHSCOPE_API_KEY", "")
 
 # 嵌入服务配置
 # 选择使用哪种嵌入服务: 'api'(DashScope API) 或 'local'(本地嵌入模型)
-EMBEDDING_SERVICE_TYPE = os.environ.get("EMBEDDING_SERVICE_TYPE", "local")
+EMBEDDING_SERVICE_TYPE = os.environ.get("EMBEDDING_SERVICE_TYPE", "api")
 
 # API嵌入模型配置（当 EMBEDDING_SERVICE_TYPE='api' 时使用）
 EMBEDDING_MODEL_VERSION = os.environ.get("EMBEDDING_MODEL_VERSION", "text-embedding-v4")
@@ -185,6 +183,13 @@ LOCAL_EMBEDDING_MODEL = os.environ.get("LOCAL_EMBEDDING_MODEL", "BAAI/bge-large-
 
 # 注意：text-embedding-v4是OpenAI API模型，不是HuggingFace模型
 # 确保在使用本地嵌入服务时不使用API模型名称
+
+# 缓存配置 - 优化性能
+EMBEDDING_CACHE_ENABLED = os.environ.get("EMBEDDING_CACHE_ENABLED", "True").lower() == "true"
+EMBEDDING_CACHE_TIMEOUT = int(os.environ.get("EMBEDDING_CACHE_TIMEOUT", "86400"))  # 24小时
+
+QA_RETRIEVAL_CACHE_ENABLED = os.environ.get("QA_RETRIEVAL_CACHE_ENABLED", "True").lower() == "true"
+QA_RETRIEVAL_CACHE_TIMEOUT = int(os.environ.get("QA_RETRIEVAL_CACHE_TIMEOUT", "3600"))  # 1小时
 
 # 向量库配置
 VECTOR_STORE_PATH = os.environ.get("VECTOR_STORE_PATH", str(BASE_DIR / "vector_store"))
@@ -227,16 +232,16 @@ SESSION_CACHE_ALIAS = "default"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # Celery配置
-CELERY_RESULT_BACKEND = 'django-db'  # 使用数据库存储任务结果
+CELERY_RESULT_BACKEND = "django-db"  # 使用数据库存储任务结果
 CELERY_BROKER_URL = f"redis://{REDIS_HOST}:{REDIS_PORT}/1"
-CELERY_ACCEPT_CONTENT = ['json']
-CELERY_TASK_SERIALIZER = 'json'
-CELERY_RESULT_SERIALIZER = 'json'
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = TIME_ZONE
 CELERY_TASK_TRACK_STARTED = True
 CELERY_TASK_TIME_LIMIT = 30 * 60  # 30分钟超时限制
 
 
 INSTALLED_APPS += [
-    'django_celery_results',
+    "django_celery_results",
 ]

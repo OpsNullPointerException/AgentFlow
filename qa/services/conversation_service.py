@@ -79,10 +79,14 @@ class ConversationService:
             # 验证对话存在并属于当前用户
             get_object_or_404(Conversation, id=conversation_id, user_id=user_id)
 
-            # 使用QA服务处理查询
-            logger.info(f"开始处理用户查询，对话ID: {conversation_id}, 查询内容: {content[:50]}...")
+            # 使用QA服务处理查询，支持模型参数
+            logger.info(f"开始处理用户查询，对话ID: {conversation_id}, 查询内容: {content[:50]}..., 模型: {model}")
             qa_response = self.qa_service.process_query(
-                conversation_id=conversation_id, query=content, user_id=user_id
+                conversation_id=conversation_id,
+                query=content,
+                user_id=user_id,
+                model=model or "qwen-turbo",
+                memory_type="buffer_window"
             )
 
             # 获取助手回复信息
@@ -98,26 +102,25 @@ class ConversationService:
                 with transaction.atomic():
                     assistant_message = Message.objects.create(
                         conversation_id=conversation_id,
-                        content=qa_response.get("answer", "处理请求时发生错误"),
+                        content=qa_response.answer if hasattr(qa_response, 'answer') else str(qa_response),
                         message_type="assistant",
+                        model=model or "qwen-turbo"
                     )
 
             # 更新对话时间
             self._update_conversation_time(conversation_id)
 
             # 构建返回对象，包括文档引用
-            message_data = MessageOut(
-                id=assistant_message.id,
-                content=assistant_message.content,
-                message_type=assistant_message.message_type,
-                created_at=assistant_message.created_at,
-                referenced_documents=self._get_message_document_references(
+            message_data = {
+                "id": assistant_message.id,
+                "content": assistant_message.content,
+                "message_type": assistant_message.message_type,
+                "created_at": assistant_message.created_at,
+                "model": assistant_message.model or model or "qwen-turbo",
+                "referenced_documents": self._get_message_document_references(
                     assistant_message.id, MessageType.ASSISTANT
                 ),
-            )
-
-            if model:
-                message_data["model"] = model
+            }
 
             logger.info(f"用户查询处理完成，对话ID: {conversation_id}")
 
@@ -132,6 +135,7 @@ class ConversationService:
                     conversation_id=conversation_id,
                     content=f"处理您的请求时发生错误: {str(e)}",
                     message_type="assistant",
+                    model=model or "qwen-turbo"
                 )
 
             return {
@@ -139,58 +143,53 @@ class ConversationService:
                 "content": error_message.content,
                 "message_type": error_message.message_type,
                 "created_at": error_message.created_at,
+                "model": error_message.model,
                 "referenced_documents": [],
             }
 
     def create_message_stream(
         self, conversation_id: int, user_id: int, content: str, model: str = "qwen-turbo"
     ) -> Generator[str, None, None]:
-        """向对话中添加新消息并获取流式回复（SSE）"""
+        """SSE流式处理生成器 - 产生符合SSE协议的数据块"""
         try:
             # 发送一个初始心跳消息，测试连接是否正常
-            logger.info(f"开始流式传输，发送初始心跳")
-            init_data = {"init": True, "message": "连接已建立"}
-            yield f"data: {json.dumps(init_data)}\n\n"
-
+            logger.info(f"开始SSE流式传输")
+            
             # 验证对话存在并属于当前用户
             conversation = get_object_or_404(Conversation, id=conversation_id, user_id=user_id)
 
-            # 记录用户消息
-            user_message = Message.objects.create(
-                conversation_id=conversation.id, content=content, message_type="user"
-            )
-
-            # 调用QA服务处理查询 - 流式模式
             logger.info(
                 f"开始流式处理用户查询，对话ID: {conversation_id}, 查询内容: {content[:50] if len(content) > 50 else content}, 使用模型: {model}"
             )
 
-            # 处理流式响应并返回给前端
+            # 使用QAService的优化流式处理方法
+            # QAService会自动处理：用户消息保存、助手消息创建、文档检索、LLM调用、记忆管理等
             chunk_count = 0
             for chunk in self.qa_service.process_query_stream(
-                conversation_id=conversation_id, query=content, user_id=user_id, model=model
+                conversation_id=conversation_id,
+                query=content,
+                user_id=user_id,
+                model=model,
+                memory_type="buffer_window"
             ):
                 chunk_count += 1
-                # 将Python对象转换为JSON字符串
-                json_data = json.dumps(chunk)
-                # 添加调试日志
-                logger.debug(f"生成数据块 #{chunk_count}: {json_data[:100]}...")
-                # 返回SSE格式数据
+                # 将Python对象转换为JSON字符串，确保中文字符正确编码
+                json_data = json.dumps(chunk, ensure_ascii=False)
+                # 格式化为SSE协议标准格式: "data: {json}\n\n"
                 sse_data = f"data: {json_data}\n\n"
-                logger.debug(f"发送SSE数据: {sse_data[:100]}...")
                 yield sse_data
 
-            logger.info(f"流式处理用户查询完成，对话ID: {conversation_id}")
+            logger.info(f"SSE流式处理完成，对话ID: {conversation_id}, 共发送 {chunk_count} 个数据块")
 
         except Exception as e:
-            logger.exception(f"流式处理出错: {str(e)}")
+            logger.exception(f"SSE流式处理出错: {str(e)}")
             error_data = {
                 "error": True,
                 "error_message": str(e),
                 "finished": True,
                 "answer_delta": f"\n\n处理失败: {str(e)}",
             }
-            yield f"data: {json.dumps(error_data)}\n\n"
+            yield f"data: {json.dumps(error_data, ensure_ascii=False)}\n\n"
 
     def _get_message_document_references(
         self, message_id: int, message_type: MessageType
