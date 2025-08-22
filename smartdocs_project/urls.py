@@ -52,9 +52,7 @@ class JWTAuth(HttpBearer):
 
 
 # 创建API实例
-api = NinjaAPI(
-    title="SmartDocs API", version="1.0.0", description="智能文档问答平台API", auth=JWTAuth()
-)
+api = NinjaAPI(title="SmartDocs API", version="1.0.0", description="智能文档问答平台API", auth=JWTAuth())
 
 # 注册需要认证的路由器
 api.add_router("/accounts/", accounts_router)

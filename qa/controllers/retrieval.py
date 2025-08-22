@@ -16,10 +16,10 @@ def retrieve_documents(request, data: RetrievalIn):
     """
     # 记录开始时间
     start_time = time.time()
-    
+
     # 使用RAGService执行检索
     rag_service = RAGService(embedding_model_version=data.embedding_model_version)
-    
+
     # 执行搜索
     search_results = rag_service.retrieve_relevant_documents(query=data.query, top_k=data.top_k)
 

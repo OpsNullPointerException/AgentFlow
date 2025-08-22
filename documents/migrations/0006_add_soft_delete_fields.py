@@ -4,20 +4,19 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('documents', '0005_document_task_id'),
+        ("documents", "0005_document_task_id"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='document',
-            name='deleted_at',
-            field=models.DateTimeField(blank=True, null=True, verbose_name='删除时间'),
+            model_name="document",
+            name="deleted_at",
+            field=models.DateTimeField(blank=True, null=True, verbose_name="删除时间"),
         ),
         migrations.AddField(
-            model_name='document',
-            name='is_deleted',
-            field=models.BooleanField(default=False, verbose_name='是否删除'),
+            model_name="document",
+            name="is_deleted",
+            field=models.BooleanField(default=False, verbose_name="是否删除"),
         ),
     ]

@@ -71,9 +71,7 @@ class ConversationService:
 
         return result
 
-    def create_message(
-        self, conversation_id: int, user_id: int, content: str, model: str = None
-    ) -> MessageOut:
+    def create_message(self, conversation_id: int, user_id: int, content: str, model: str = None) -> MessageOut:
         """向对话中添加新消息并获取回复"""
         try:
             # 验证对话存在并属于当前用户
@@ -86,7 +84,7 @@ class ConversationService:
                 query=content,
                 user_id=user_id,
                 model=model or "qwen-turbo",
-                memory_type="buffer_window"
+                memory_type="buffer_window",
             )
 
             # 获取助手回复信息
@@ -102,9 +100,9 @@ class ConversationService:
                 with transaction.atomic():
                     assistant_message = Message.objects.create(
                         conversation_id=conversation_id,
-                        content=qa_response.answer if hasattr(qa_response, 'answer') else str(qa_response),
+                        content=qa_response.answer if hasattr(qa_response, "answer") else str(qa_response),
                         message_type="assistant",
-                        model=model or "qwen-turbo"
+                        model=model or "qwen-turbo",
                     )
 
             # 更新对话时间
@@ -135,7 +133,7 @@ class ConversationService:
                     conversation_id=conversation_id,
                     content=f"处理您的请求时发生错误: {str(e)}",
                     message_type="assistant",
-                    model=model or "qwen-turbo"
+                    model=model or "qwen-turbo",
                 )
 
             return {
@@ -154,7 +152,7 @@ class ConversationService:
         try:
             # 发送一个初始心跳消息，测试连接是否正常
             logger.info(f"开始SSE流式传输")
-            
+
             # 验证对话存在并属于当前用户
             conversation = get_object_or_404(Conversation, id=conversation_id, user_id=user_id)
 
@@ -170,7 +168,7 @@ class ConversationService:
                 query=content,
                 user_id=user_id,
                 model=model,
-                memory_type="buffer_window"
+                memory_type="buffer_window",
             ):
                 chunk_count += 1
                 # 将Python对象转换为JSON字符串，确保中文字符正确编码
@@ -197,7 +195,7 @@ class ConversationService:
         """获取消息的文档引用"""
         refs = list[DocumentReferenceOut]()
         if message_type == MessageType.ASSISTANT:  # 只有助手消息才有文档引用
-            doc_refs  = MessageDocumentReference.objects.filter(message_id=message_id)
+            doc_refs = MessageDocumentReference.objects.filter(message_id=message_id)
             for doc_ref in doc_refs:
                 try:
                     doc = Document.objects.get(id=doc_ref.document_id)

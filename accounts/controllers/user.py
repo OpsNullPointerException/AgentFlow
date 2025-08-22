@@ -6,21 +6,16 @@ from accounts.schemas.user import UserOut, UserUpdate
 def get_current_user(request):
     """获取当前登录用户的信息"""
     user = request.auth
-    
+
     # 确保用户有profile对象
     from accounts.models import UserProfile
-    
+
     # 直接尝试获取或创建profile - 使用user_id而不是user
     profile, created = UserProfile.objects.get_or_create(
         user_id=user.id,
-        defaults={
-            'language_preference': 'zh-cn',
-            'theme_preference': 'light',
-            'monthly_quota': 100,
-            'used_quota': 0
-        }
+        defaults={"language_preference": "zh-cn", "theme_preference": "light", "monthly_quota": 100, "used_quota": 0},
     )
-    
+
     # 手动构造响应对象，避免序列化问题
     response = {
         "id": user.id,
@@ -34,10 +29,10 @@ def get_current_user(request):
             "monthly_quota": profile.monthly_quota,
             "used_quota": profile.used_quota,
             "organization": profile.organization,
-            "department": profile.department
-        }
+            "department": profile.department,
+        },
     }
-    
+
     return response
 
 
@@ -45,28 +40,24 @@ def get_current_user(request):
 def update_current_user(request, data: UserUpdate):
     """更新当前用户信息"""
     user = request.auth
-    
+
     if data.email:
         user.email = data.email
     if data.first_name is not None:
         user.first_name = data.first_name
     if data.last_name is not None:
         user.last_name = data.last_name
-    
+
     user.save()
-    
+
     # 获取或创建用户配置文件
     from accounts.models import UserProfile
+
     profile, created = UserProfile.objects.get_or_create(
         user_id=user.id,
-        defaults={
-            'language_preference': 'zh-cn',
-            'theme_preference': 'light',
-            'monthly_quota': 100,
-            'used_quota': 0
-        }
+        defaults={"language_preference": "zh-cn", "theme_preference": "light", "monthly_quota": 100, "used_quota": 0},
     )
-    
+
     # 更新用户配置文件
     if data.profile:
         if data.profile.language_preference:
@@ -78,7 +69,7 @@ def update_current_user(request, data: UserUpdate):
         if data.profile.department is not None:
             profile.department = data.profile.department
         profile.save()
-    
+
     # 手动构造响应对象，避免序列化问题
     response = {
         "id": user.id,
@@ -92,8 +83,8 @@ def update_current_user(request, data: UserUpdate):
             "monthly_quota": profile.monthly_quota,
             "used_quota": profile.used_quota,
             "organization": profile.organization,
-            "department": profile.department
-        }
+            "department": profile.department,
+        },
     }
-    
+
     return response

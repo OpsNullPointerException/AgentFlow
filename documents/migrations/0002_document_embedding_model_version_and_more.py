@@ -4,20 +4,19 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('documents', '0001_initial'),
+        ("documents", "0001_initial"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='document',
-            name='embedding_model_version',
-            field=models.CharField(blank=True, max_length=50, null=True, verbose_name='嵌入模型版本'),
+            model_name="document",
+            name="embedding_model_version",
+            field=models.CharField(blank=True, max_length=50, null=True, verbose_name="嵌入模型版本"),
         ),
         migrations.AddField(
-            model_name='documentchunk',
-            name='embedding_model_version',
-            field=models.CharField(blank=True, max_length=50, null=True, verbose_name='嵌入模型版本'),
+            model_name="documentchunk",
+            name="embedding_model_version",
+            field=models.CharField(blank=True, max_length=50, null=True, verbose_name="嵌入模型版本"),
         ),
     ]

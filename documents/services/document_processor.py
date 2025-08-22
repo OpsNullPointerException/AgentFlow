@@ -235,9 +235,7 @@ class DocumentProcessor:
 
             # 批量创建
             DocumentChunk.objects.bulk_create(chunk_objects)
-            logger.info(
-                f"保存了{len(chunk_objects)}个文档块，进度: {min(i + batch_size, total_chunks)}/{total_chunks}"
-            )
+            logger.info(f"保存了{len(chunk_objects)}个文档块，进度: {min(i + batch_size, total_chunks)}/{total_chunks}")
 
             # 释放内存
             del chunk_objects

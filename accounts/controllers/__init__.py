@@ -12,4 +12,4 @@ from accounts.controllers.user import *
 from accounts.controllers.api_key import *
 
 # 导出路由器
-__all__ = ['router', 'public_router']
+__all__ = ["router", "public_router"]

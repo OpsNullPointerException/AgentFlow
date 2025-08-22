@@ -19,14 +19,10 @@ def create_api_key(request, data: ApiKeyIn):
     """为当前用户创建新的API密钥"""
     # 生成一个64字符的随机字符串作为API密钥
     alphabet = string.ascii_letters + string.digits
-    key = ''.join(secrets.choice(alphabet) for _ in range(64))
-    
-    api_key = ApiKey.objects.create(
-        user=request.auth,
-        name=data.name,
-        key=key
-    )
-    
+    key = "".join(secrets.choice(alphabet) for _ in range(64))
+
+    api_key = ApiKey.objects.create(user=request.auth, name=data.name, key=key)
+
     return api_key
 
 

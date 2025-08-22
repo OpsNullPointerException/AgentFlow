@@ -33,7 +33,9 @@ class QAService:
         self.rag_service = RAGService(embedding_model_version=embedding_model_version)
         self.llm_service = LLMService()
         # 用于缓存不同对话的memory实例
-        self._memory_cache: dict[str, Union[ConversationBufferWindowMemory, ConversationTokenBufferMemory, ConversationSummaryBufferMemory]] = {}
+        self._memory_cache: dict[
+            str, Union[ConversationBufferWindowMemory, ConversationTokenBufferMemory, ConversationSummaryBufferMemory]
+        ] = {}
 
         # 优化的缓存配置
         self.retrieval_cache_timeout = getattr(settings, "QA_RETRIEVAL_CACHE_TIMEOUT", 3600)  # 1小时
@@ -198,7 +200,7 @@ class QAService:
                 "finished": False,
                 "model": model,
                 "message_id": assistant_message.id,
-                "status": "processing"
+                "status": "processing",
             }
 
             # 6. 调用RAG系统检索相关文档（可能耗时）
@@ -215,10 +217,10 @@ class QAService:
 
             # 9. 流式调用LLM并实时返回
             logger.info(f"使用模型 {model} 和记忆策略 {memory_type} 流式生成回答")
-            
+
             # 预先获取不变的信息，避免每次都重新计算
             formatted_docs = self._format_document_references(relevant_docs)
-            
+
             for chunk in self.llm_service.generate_response_stream(query, context, history, model=model):
                 # 如果是增量内容，更新累计响应
                 if chunk.get("answer_delta"):
@@ -306,14 +308,16 @@ class QAService:
             )
         return history
 
-    def _get_memory_for_conversation(self, conversation_id: int, memory_type: str = "buffer_window") -> Union[ConversationBufferWindowMemory, ConversationTokenBufferMemory, ConversationSummaryBufferMemory]:
+    def _get_memory_for_conversation(
+        self, conversation_id: int, memory_type: str = "buffer_window"
+    ) -> Union[ConversationBufferWindowMemory, ConversationTokenBufferMemory, ConversationSummaryBufferMemory]:
         """为对话获取或创建LangChain Memory实例"""
         cache_key = f"{conversation_id}_{memory_type}"
 
         if cache_key not in self._memory_cache:
             # 创建新的memory实例
             memory = self._create_memory_instance(memory_type)
-            
+
             # 从数据库加载历史对话到memory
             self._load_history_to_memory(conversation_id, memory)
 
@@ -321,30 +325,32 @@ class QAService:
             logger.info(f"创建{memory_type}记忆实例，对话ID: {conversation_id}")
 
         return self._memory_cache[cache_key]
-    
-    def _create_memory_instance(self, memory_type: str) -> Union[ConversationBufferWindowMemory, ConversationTokenBufferMemory, ConversationSummaryBufferMemory]:
+
+    def _create_memory_instance(
+        self, memory_type: str
+    ) -> Union[ConversationBufferWindowMemory, ConversationTokenBufferMemory, ConversationSummaryBufferMemory]:
         """创建指定类型的LangChain Memory实例"""
         if memory_type == "buffer_window":
             return ConversationBufferWindowMemory(k=10, return_messages=True)
         elif memory_type == "token_buffer":
             # 使用TokenBuffer记忆，限制为1500个token
             return ConversationTokenBufferMemory(
-                llm=self.llm_service.get_llm_instance(),
-                max_token_limit=1500,
-                return_messages=True
+                llm=self.llm_service.get_llm_instance(), max_token_limit=1500, return_messages=True
             )
         elif memory_type == "summary_buffer":
             # 使用摘要缓冲记忆
             return ConversationSummaryBufferMemory(
-                llm=self.llm_service.get_llm_instance(),
-                max_token_limit=1000,
-                return_messages=True
+                llm=self.llm_service.get_llm_instance(), max_token_limit=1000, return_messages=True
             )
         else:
             logger.warning(f"未知记忆类型: {memory_type}, 使用默认buffer_window")
             return ConversationBufferWindowMemory(k=10, return_messages=True)
 
-    def _load_history_to_memory(self, conversation_id: int, memory: Union[ConversationBufferWindowMemory, ConversationTokenBufferMemory, ConversationSummaryBufferMemory]) -> None:
+    def _load_history_to_memory(
+        self,
+        conversation_id: int,
+        memory: Union[ConversationBufferWindowMemory, ConversationTokenBufferMemory, ConversationSummaryBufferMemory],
+    ) -> None:
         """从数据库加载历史对话到LangChain memory"""
         messages = Message.objects.filter(conversation_id=conversation_id).order_by("created_at")
 

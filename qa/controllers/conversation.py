@@ -22,19 +22,17 @@ def list_conversations(request):
 
 
 @router.post("/conversations", response=ConversationOut)
-def create_conversation(request:HttpRequest, data: ConversationIn):
+def create_conversation(request: HttpRequest, data: ConversationIn):
     """创建新对话"""
     conversation_service = ConversationService()
     return conversation_service.create_conversation(user_id=request.auth.id, title=data.title)
 
 
 @router.get("/conversations/{conversation_id}", response=ConversationDetailOut)
-def get_conversation(request:HttpRequest, conversation_id: int):
+def get_conversation(request: HttpRequest, conversation_id: int):
     """获取对话详情，包括所有消息"""
     conversation_service = ConversationService()
-    return conversation_service.get_conversation_with_messages(
-        conversation_id=conversation_id, user_id=request.auth.id
-    )
+    return conversation_service.get_conversation_with_messages(conversation_id=conversation_id, user_id=request.auth.id)
 
 
 @router.post("/conversations/{conversation_id}/messages", response=MessageOut)
@@ -83,8 +81,8 @@ def create_message_stream(request, conversation_id: int):
     )
 
     # 添加SSE所需的响应头，确保实时传输
-    response["Cache-Control"] = "no-cache"        # 禁止缓存
-    response["X-Accel-Buffering"] = "no"         # 禁用Nginx缓冲
+    response["Cache-Control"] = "no-cache"  # 禁止缓存
+    response["X-Accel-Buffering"] = "no"  # 禁用Nginx缓冲
     return response
 
 
@@ -92,7 +90,5 @@ def create_message_stream(request, conversation_id: int):
 def delete_conversation(request, conversation_id: int):
     """删除对话"""
     conversation_service = ConversationService()
-    success = conversation_service.delete_conversation(
-        conversation_id=conversation_id, user_id=request.auth.id
-    )
+    success = conversation_service.delete_conversation(conversation_id=conversation_id, user_id=request.auth.id)
     return {"success": success}

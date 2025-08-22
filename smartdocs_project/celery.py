@@ -2,19 +2,19 @@ import os
 from celery import Celery
 
 # 设置默认Django settings模块
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'smartdocs_project.settings')
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "smartdocs_project.settings")
 
-app = Celery('smartdocs')
+app = Celery("smartdocs")
 
 # 使用Django的settings配置Celery
-app.config_from_object('django.conf:settings', namespace='CELERY')
+app.config_from_object("django.conf:settings", namespace="CELERY")
 
 # 设置Redis作为broker
 app.conf.broker_url = f"redis://{os.environ.get('REDIS_HOST', 'localhost')}:{os.environ.get('REDIS_PORT', '6379')}/1"
 # 使用DB 1作为消息队列，与Django缓存(DB 0)分开
 
 # 使用solo池模式，避免预分叉带来的内存问题
-app.conf.worker_pool = 'solo'
+app.conf.worker_pool = "solo"
 
 # 内存和任务优化配置
 app.conf.update(
@@ -29,7 +29,8 @@ app.conf.update(
 # 自动发现所有app下的tasks.py文件
 app.autodiscover_tasks()
 
+
 # 设置Celery任务状态更新回调
 @app.task(bind=True)
 def debug_task(self):
-    print(f'Request: {self.request!r}')
+    print(f"Request: {self.request!r}")

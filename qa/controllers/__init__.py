@@ -9,4 +9,4 @@ from qa.controllers.conversation import *
 from qa.controllers.retrieval import *
 
 # 导出路由器
-__all__ = ['router']
+__all__ = ["router"]

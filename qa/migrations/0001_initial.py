@@ -4,56 +4,61 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     initial = True
 
-    dependencies = [
-    ]
+    dependencies = []
 
     operations = [
         migrations.CreateModel(
-            name='Conversation',
+            name="Conversation",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('title', models.CharField(max_length=255, verbose_name='标题')),
-                ('user_id', models.IntegerField(verbose_name='用户ID')),
-                ('created_at', models.DateTimeField(auto_now_add=True, verbose_name='创建时间')),
-                ('updated_at', models.DateTimeField(auto_now=True, verbose_name='更新时间')),
+                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                ("title", models.CharField(max_length=255, verbose_name="标题")),
+                ("user_id", models.IntegerField(verbose_name="用户ID")),
+                ("created_at", models.DateTimeField(auto_now_add=True, verbose_name="创建时间")),
+                ("updated_at", models.DateTimeField(auto_now=True, verbose_name="更新时间")),
             ],
             options={
-                'verbose_name': '对话',
-                'verbose_name_plural': '对话',
-                'ordering': ['-updated_at'],
+                "verbose_name": "对话",
+                "verbose_name_plural": "对话",
+                "ordering": ["-updated_at"],
             },
         ),
         migrations.CreateModel(
-            name='Message',
+            name="Message",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('conversation_id', models.IntegerField(verbose_name='对话ID')),
-                ('content', models.TextField(verbose_name='内容')),
-                ('message_type', models.CharField(choices=[('user', '用户消息'), ('assistant', '助手消息'), ('system', '系统消息')], max_length=10, verbose_name='消息类型')),
-                ('created_at', models.DateTimeField(auto_now_add=True, verbose_name='创建时间')),
+                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                ("conversation_id", models.IntegerField(verbose_name="对话ID")),
+                ("content", models.TextField(verbose_name="内容")),
+                (
+                    "message_type",
+                    models.CharField(
+                        choices=[("user", "用户消息"), ("assistant", "助手消息"), ("system", "系统消息")],
+                        max_length=10,
+                        verbose_name="消息类型",
+                    ),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True, verbose_name="创建时间")),
             ],
             options={
-                'verbose_name': '消息',
-                'verbose_name_plural': '消息',
-                'ordering': ['conversation_id', 'created_at'],
+                "verbose_name": "消息",
+                "verbose_name_plural": "消息",
+                "ordering": ["conversation_id", "created_at"],
             },
         ),
         migrations.CreateModel(
-            name='MessageDocumentReference',
+            name="MessageDocumentReference",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('message_id', models.IntegerField(verbose_name='消息ID')),
-                ('document_id', models.IntegerField(verbose_name='文档ID')),
-                ('relevance_score', models.FloatField(default=0.0, verbose_name='相关性分数')),
-                ('chunk_indices', models.JSONField(default=list, verbose_name='引用的块索引')),
+                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                ("message_id", models.IntegerField(verbose_name="消息ID")),
+                ("document_id", models.IntegerField(verbose_name="文档ID")),
+                ("relevance_score", models.FloatField(default=0.0, verbose_name="相关性分数")),
+                ("chunk_indices", models.JSONField(default=list, verbose_name="引用的块索引")),
             ],
             options={
-                'verbose_name': '消息文档引用',
-                'verbose_name_plural': '消息文档引用',
-                'unique_together': {('message_id', 'document_id')},
+                "verbose_name": "消息文档引用",
+                "verbose_name_plural": "消息文档引用",
+                "unique_together": {("message_id", "document_id")},
             },
         ),
     ]

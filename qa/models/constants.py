@@ -3,6 +3,7 @@ from enum import Enum
 
 class MessageType(str, Enum):
     """消息类型枚举"""
+
     USER = "user"
     ASSISTANT = "assistant"
     SYSTEM = "system"

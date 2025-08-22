@@ -3,6 +3,7 @@ from django.db import models
 
 class Conversation(models.Model):
     """对话模型，表示一次完整的对话会话"""
+
     id = models.AutoField(primary_key=True)
     title = models.CharField("标题", max_length=255)
     # 使用整数字段替代外键

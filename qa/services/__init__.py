@@ -4,8 +4,4 @@ from .rag_service import RAGService
 from .llm_service import LLMService
 
 # 设置要导出的类，以便在使用from qa.services import *时可以导入这些类
-__all__ = [
-    'QAService',
-    'RAGService',
-    'LLMService'
-]
+__all__ = ["QAService", "RAGService", "LLMService"]

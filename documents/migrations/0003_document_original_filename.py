@@ -4,15 +4,14 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('documents', '0002_document_embedding_model_version_and_more'),
+        ("documents", "0002_document_embedding_model_version_and_more"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='document',
-            name='original_filename',
-            field=models.CharField(blank=True, max_length=255, null=True, verbose_name='原始文件名'),
+            model_name="document",
+            name="original_filename",
+            field=models.CharField(blank=True, max_length=255, null=True, verbose_name="原始文件名"),
         ),
     ]

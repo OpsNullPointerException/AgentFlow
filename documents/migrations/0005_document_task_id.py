@@ -4,15 +4,14 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('documents', '0004_remove_document_original_filename'),
+        ("documents", "0004_remove_document_original_filename"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='document',
-            name='task_id',
-            field=models.CharField(blank=True, max_length=255, null=True, verbose_name='任务ID'),
+            model_name="document",
+            name="task_id",
+            field=models.CharField(blank=True, max_length=255, null=True, verbose_name="任务ID"),
         ),
     ]

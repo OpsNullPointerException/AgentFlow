@@ -110,22 +110,17 @@ def reindex_document(request, document_id: int, reindex_data: ReindexDocumentIn 
 def get_document_task_status(request, document_id: int):
     """获取文档处理任务状态"""
     document = get_object_or_404(Document, id=document_id, owner_id=request.auth.id)
-    
+
     # 如果没有任务ID，返回文档状态
     if not document.task_id:
-        return TaskStatusOut(
-            task_id=None,
-            status="UNKNOWN",
-            document_status=document.status,
-            result=None
-        )
-    
+        return TaskStatusOut(task_id=None, status="UNKNOWN", document_status=document.status, result=None)
+
     # 获取Celery任务状态
     task = AsyncResult(document.task_id)
-    
+
     return TaskStatusOut(
         task_id=document.task_id,
         status=task.status,
         document_status=document.status,
-        result=task.result if task.successful() else None
+        result=task.result if task.successful() else None,
     )

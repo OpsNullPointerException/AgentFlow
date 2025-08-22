@@ -4,18 +4,17 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('qa', '0002_conversationmemorystate'),
+        ("qa", "0002_conversationmemorystate"),
     ]
 
     operations = [
         migrations.DeleteModel(
-            name='ConversationMemoryState',
+            name="ConversationMemoryState",
         ),
         migrations.AlterField(
-            model_name='conversation',
-            name='id',
+            model_name="conversation",
+            name="id",
             field=models.AutoField(primary_key=True, serialize=False),
         ),
     ]

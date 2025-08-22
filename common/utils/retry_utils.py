@@ -50,9 +50,7 @@ def retry(
                     if on_retry:
                         on_retry(e, tries, max_tries)
 
-                    logger.warning(
-                        f"尝试 {tries}/{max_tries} 失败: {str(e)}，将在 {_delay:.2f} 秒后重试"
-                    )
+                    logger.warning(f"尝试 {tries}/{max_tries} 失败: {str(e)}，将在 {_delay:.2f} 秒后重试")
                     time.sleep(_delay)
                     _delay *= backoff_factor
 

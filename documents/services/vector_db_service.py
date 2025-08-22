@@ -91,9 +91,7 @@ class VectorDBService:
         logger.info(f"初始化VectorDBService，使用嵌入模型: {self.embedding_model_version}")
 
         # 使用工厂函数初始化嵌入服务，传递模型版本
-        self.embedding_service = get_embedding_service(
-            embedding_model_version=self.embedding_model_version
-        )
+        self.embedding_service = get_embedding_service(embedding_model_version=self.embedding_model_version)
 
         # 从嵌入服务获取实际向量维度，而不是使用配置中的固定值
         self.vector_dim = self.embedding_service.vector_dim  # 使用嵌入服务的实际向量维度
@@ -212,10 +210,7 @@ class VectorDBService:
                 local_mapping_mtime = os.path.getmtime(self.mapping_file)
 
                 # 如果Redis中记录的时间比本地文件更新，则表示有其他进程更新了文件
-                if (
-                    redis_index_mtime > local_index_mtime
-                    or redis_mapping_mtime > local_mapping_mtime
-                ):
+                if redis_index_mtime > local_index_mtime or redis_mapping_mtime > local_mapping_mtime:
                     logger.info(
                         f"检测到索引文件有更新 (模型版本: {self.embedding_model_version})，"
                         f"Redis记录时间: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(redis_index_mtime))}，"
@@ -462,9 +457,7 @@ class VectorDBService:
 
     @cached(prefix="vector_search", timeout=60 * 60)  # 缓存1小时
     @staticmethod
-    def search_static(
-        query: str, top_k: int = 5, embedding_model_version=None
-    ) -> List[Dict[str, Any]]:
+    def search_static(query: str, top_k: int = 5, embedding_model_version=None) -> List[Dict[str, Any]]:
         """
         静态方法版本的搜索，方便缓存和共享
 
@@ -535,9 +528,7 @@ class VectorDBService:
             daemon=True,  # 设置为守护线程，避免阻止程序退出
         )
         self._subscriber_thread.start()
-        logger.info(
-            f"已启动索引更新订阅线程 (模型版本: {self.embedding_model_version}, 进程ID: {self._pid})"
-        )
+        logger.info(f"已启动索引更新订阅线程 (模型版本: {self.embedding_model_version}, 进程ID: {self._pid})")
 
     def _update_subscriber_thread(self):
         """Redis Pub/Sub订阅线程，监听索引更新通知"""
