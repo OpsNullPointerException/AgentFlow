@@ -1,5 +1,6 @@
 import hashlib
-from typing import Any, Dict, Generator, List, Optional, Union
+from collections.abc import Generator
+from typing import Any, Optional, Union
 
 from django.conf import settings
 from django.core.cache import cache
@@ -15,6 +16,7 @@ from loguru import logger
 
 from ..models import Conversation, Message, MessageDocumentReference
 from ..schemas.conversation import MemoryInfoOut, QueryResponseOut
+from ..schemas.retrieval import DocumentSearchResultOut
 from .llm_service import LLMService
 from .rag_service import RAGService
 
@@ -101,7 +103,8 @@ class QAService:
             relevant_docs = self._get_cached_retrieval(query)
             if relevant_docs is None:
                 # 缓存未命中，从RAG服务获取
-                relevant_docs = self.rag_service.retrieve_relevant_documents(query)
+                retrieval_result = self.rag_service.retrieve_relevant_documents(query)
+                relevant_docs = retrieval_result.documents  # 提取文档列表
                 # 缓存结果
                 self._set_cached_retrieval(query, relevant_docs)
             else:
@@ -204,7 +207,8 @@ class QAService:
             }
 
             # 6. 调用RAG系统检索相关文档（可能耗时）
-            relevant_docs = self.rag_service.retrieve_relevant_documents(query)
+            retrieval_result = self.rag_service.retrieve_relevant_documents(query)
+            relevant_docs = retrieval_result.documents  # 提取文档列表
 
             # 7. 格式化上下文
             context = self.rag_service.format_context_for_llm(relevant_docs, query)
@@ -404,17 +408,17 @@ class QAService:
         except Exception as e:
             logger.warning(f"同步助手消息到Memory失败: {str(e)}")
 
-    def _save_document_references(self, message_id: int, documents: list[dict[str, Any]]) -> None:
+    def _save_document_references(self, message_id: int, documents: list[DocumentSearchResultOut]) -> None:
         """保存文档引用"""
         for doc in documents:
-            if "id" in doc and "score" in doc:
+            if doc.id and doc.score is not None:
                 # 使用get_or_create避免创建重复记录
                 MessageDocumentReference.objects.get_or_create(
                     message_id=message_id,
-                    document_id=doc["id"],
+                    document_id=doc.id,
                     defaults={
-                        "relevance_score": doc["score"],
-                        "chunk_indices": doc.get("chunk_indices", []),
+                        "relevance_score": doc.final_score or doc.score,
+                        "chunk_indices": [doc.chunk_index] if doc.chunk_index is not None else [],
                     },
                 )
 
@@ -422,19 +426,19 @@ class QAService:
         """更新对话的最后更新时间"""
         Conversation.objects.filter(id=conversation_id).update()  # 自动更新updated_at
 
-    def _format_document_references(self, documents: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _format_document_references(self, documents: list[DocumentSearchResultOut]) -> list[dict[str, Any]]:
         """格式化文档引用以返回给客户端"""
         formatted_refs = []
         for doc in documents:
-            if "id" in doc and "content" in doc:
+            if doc.id and doc.content:
                 formatted_refs.append(
                     {
-                        "document_id": doc["id"],
-                        "title": doc.get("title", "无标题文档"),
-                        "content_preview": doc["content"][:200] + "..."
-                        if len(doc["content"]) > 200
-                        else doc["content"],
-                        "relevance_score": doc.get("score", 0.0),
+                        "document_id": doc.id,
+                        "title": doc.title or "无标题文档",
+                        "content_preview": doc.content[:200] + "..."
+                        if len(doc.content) > 200
+                        else doc.content,
+                        "relevance_score": doc.final_score or doc.score or 0.0,
                     }
                 )
         return formatted_refs

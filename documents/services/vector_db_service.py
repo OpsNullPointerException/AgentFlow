@@ -1,20 +1,23 @@
-import os
-import numpy as np
-import faiss
-from typing import List, Dict, Any, Self
-from loguru import logger
-from django.conf import settings
-import pickle
-from pathlib import Path
 import gc  # 添加垃圾回收模块
+import os
+import pickle
 import threading
 import time
+from pathlib import Path
+from typing import Any, Dict, List, Self
+
+import faiss
+import numpy as np
+from django.conf import settings
+from loguru import logger
+
+from common.utils.cache_utils import RedisCache, cached
+from qa.schemas.retrieval import DocumentSearchResultOut
 
 from ..models import Document, DocumentChunk
 
 # 替换直接导入为使用工厂函数
 from .embedding_factory import get_embedding_service
-from common.utils.cache_utils import RedisCache, cached
 
 # loguru不需要getLogger
 
@@ -386,7 +389,7 @@ class VectorDBService:
             logger.exception(f"索引文档{document.id}失败: {str(e)}")
             return False
 
-    def search(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
+    def search(self, query: str, top_k: int = 5) -> List[DocumentSearchResultOut]:
         """根据查询文本搜索相关文档块"""
         try:
             # 检查索引是否为空
@@ -432,14 +435,17 @@ class VectorDBService:
                         continue
 
                     results.append(
-                        {
-                            "id": document.id,
-                            "title": document.title,
-                            "content": chunk.content,
-                            "score": float(distances[0][i]),  # 转换numpy.float32为Python float
-                            "chunk_index": chunk.chunk_index,
-                            "embedding_model_version": document.embedding_model_version,
-                        }
+                        DocumentSearchResultOut(
+                            id=document.id,
+                            title=document.title,
+                            content=chunk.content,
+                            score=float(distances[0][i]),  # 转换numpy.float32为Python float
+                            chunk_index=chunk.chunk_index,
+                            embedding_model_version=document.embedding_model_version,
+                            rerank_score=None,
+                            final_score=None,
+                            rerank_method=None,
+                        )
                     )
                 except (DocumentChunk.DoesNotExist, Document.DoesNotExist):
                     # 如果文档块或文档不存在，跳过
@@ -449,15 +455,15 @@ class VectorDBService:
                 logger.warning(f"跳过了{version_mismatch_count}个模型版本不匹配的文档块")
 
             # 按相似度分数排序
-            results = sorted(results, key=lambda x: x["score"], reverse=True)
+            results = sorted(results, key=lambda x: x.score, reverse=True)
             return results
         except Exception as e:
             logger.exception(f"搜索失败: {str(e)}")
             return []
 
-    @cached(prefix="vector_search", timeout=60 * 60)  # 缓存1小时
+    @cached(prefix="vector_search", timeout=60 * 60)  # 临时禁用缓存以避免schema不兼容问题
     @staticmethod
-    def search_static(query: str, top_k: int = 5, embedding_model_version=None) -> List[Dict[str, Any]]:
+    def search_static(query: str, top_k: int = 5, embedding_model_version=None) -> List[DocumentSearchResultOut]:
         """
         静态方法版本的搜索，方便缓存和共享
 
