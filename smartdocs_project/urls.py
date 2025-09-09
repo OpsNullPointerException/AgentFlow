@@ -30,6 +30,7 @@ from loguru import logger
 from accounts.controllers import router as accounts_router, public_router as accounts_public_router
 from documents.api import router as documents_router
 from qa.api import router as qa_router
+from agents.api import router as agents_router
 
 
 class JWTAuth(HttpBearer):
@@ -52,18 +53,19 @@ class JWTAuth(HttpBearer):
 
 
 # 创建API实例
-api = NinjaAPI(title="SmartDocs API", version="1.0.0", description="智能文档问答平台API", auth=JWTAuth())
+api = NinjaAPI(title="AgentFlow API", version="1.0.0", description="智能代理平台API - 集成文档管理、问答系统和AI Agent", auth=JWTAuth())
 
 # 注册需要认证的路由器
 api.add_router("/accounts/", accounts_router)
 api.add_router("/documents/", documents_router)
 api.add_router("/qa/", qa_router)
+api.add_router("/agents/", agents_router)
 
 # 创建不需要认证的公开API
 public_api = NinjaAPI(
-    title="SmartDocs Public API",
+    title="AgentFlow Public API",
     version="1.0.0",
-    description="智能文档问答平台公开API",
+    description="智能体平台公开API",
     auth=None,
     urls_namespace="public_api",
 )

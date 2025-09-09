@@ -1,7 +1,7 @@
 [project]
-name = "smartdocs"
+name = "agentflow"
 version = "0.1.0"
-description = "SmartDocs - 企业/团队文档的智能问答系统"
+description = "AgentFlow - 智能agent平台，集成文档问答、AI工具和自动化工作流"
 authors = [
     {name = "Admin", email = "admin@admin.com"}
 ]
@@ -11,6 +11,9 @@ dependencies = [
     "django-cors-headers>=4.0.0",
     "psycopg2-binary>=2.9.6",
     "langchain>=0.0.267",
+    "langchain-community>=0.0.10",
+    "langchain-openai>=0.0.2",
+    "langchain-experimental>=0.0.49",
     "faiss-cpu>=1.7.4",
     "PyPDF2>=3.0.0",
     "python-docx>=0.8.11",
@@ -32,6 +35,7 @@ dependencies = [
     "celery>=5.5.3",
     "django-celery-results>=2.6.0",
     "flower>=2.0.1",
+    "ddgs>=9.5.5",
 ]
 requires-python = ">=3.10"
 
@@ -43,13 +47,14 @@ build-backend = "hatchling.build"
 line-length = 100
 
 [tool.hatch.build.targets.wheel]
-packages = ["accounts", "documents", "qa", "smartdocs_project", "common"]
+packages = ["accounts", "documents", "qa", "agents", "smartdocs_project", "common"]
 
 [tool.hatch.build]
 include = [
     "accounts/**/*.py",
     "documents/**/*.py",
     "qa/**/*.py",
+    "agents/**/*.py",
     "smartdocs_project/**/*.py",
     "common/**/*.py",
     "manage.py",

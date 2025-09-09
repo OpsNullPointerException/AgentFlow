@@ -5,8 +5,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SmartDocs - 智能文档问答平台</title>
-    <link rel="stylesheet" href="{% static 'css/styles.css' %}">
+    <title>AgentFlow - 智能体平台</title>
+    <link rel="stylesheet" href="{% static 'static/css/styles.css' %}">
     <!-- 添加v-cloak样式，防止未编译的模板闪现 -->
     <style>
         [v-cloak] {
@@ -30,171 +30,585 @@
         }
 
         .login-box {
-            width: 400px;
-            padding: 30px;
-            background-color: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+            background: rgba(255, 255, 255, 0.95);
+            padding: 40px;
+            border-radius: 10px;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-width: 400px;
+            backdrop-filter: blur(10px);
         }
 
         .app-title {
-            font-size: 28px;
-            color: #1890ff;
             text-align: center;
-            margin-bottom: 5px;
+            margin-bottom: 10px;
+            color: #1890ff;
+            font-size: 2.5em;
+            font-weight: 700;
+            letter-spacing: -1px;
         }
 
         .app-subtitle {
-            font-size: 16px;
-            color: #666;
             text-align: center;
             margin-bottom: 30px;
-        }
-
-        /* 表单样式 */
-        .form-group {
-            margin-bottom: 20px;
-        }
-
-        .form-group label {
-            display: block;
-            margin-bottom: 5px;
-            font-weight: 500;
-            color: #333;
-        }
-
-        .form-control {
-            width: 100%;
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            font-size: 14px;
-            transition: border-color 0.3s;
-        }
-
-        .form-control:focus {
-            border-color: #1890ff;
-            outline: none;
-            box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.2);
-        }
-
-        .btn {
-            display: inline-block;
-            padding: 10px 15px;
-            font-size: 14px;
-            font-weight: 500;
-            text-align: center;
-            white-space: nowrap;
-            vertical-align: middle;
-            border: 1px solid transparent;
-            border-radius: 4px;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
-
-        .btn-primary {
-            color: #fff;
-            background-color: #1890ff;
-            border-color: #1890ff;
-        }
-
-        .btn-primary:hover {
-            background-color: #40a9ff;
-            border-color: #40a9ff;
-        }
-
-        .btn-block {
-            display: block;
-            width: 100%;
-            margin-top: 30px;
-        }
-
-        /* 标签样式 */
-        .tab-header {
-            display: flex;
-            margin-bottom: 20px;
-            border-bottom: 1px solid #e8e8e8;
-        }
-
-        .tab-button {
-            padding: 10px 20px;
-            margin-right: 10px;
-            background: none;
-            border: none;
-            cursor: pointer;
-            font-size: 16px;
             color: #666;
-            position: relative;
-            outline: none;
+            font-size: 1.1em;
+            font-weight: 400;
         }
 
-        .tab-button.active {
+        /* 主应用容器 */
+        .app-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            background: #f5f5f5;
+        }
+
+        /* 顶部导航 */
+        .app-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 20px;
+            background: #fff;
+            border-bottom: 1px solid #e8e8e8;
+            height: 60px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .header-left .app-title {
+            margin: 0;
+            font-size: 1.8em;
             color: #1890ff;
         }
 
-        .tab-button.active:after {
-            content: '';
-            position: absolute;
-            bottom: -1px;
-            left: 0;
-            right: 0;
-            height: 2px;
-            background-color: #1890ff;
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 15px;
         }
 
-        /* 文档列表样式 */
-        .document-item {
+        /* 主内容区 */
+        .app-content {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        /* 顶部标签页 */
+        .main-tabs {
+            background: #fff;
+            border-bottom: 1px solid #e8e8e8;
+            padding: 0 20px;
+        }
+
+        .main-tabs .el-tabs__header {
+            margin: 0;
+        }
+
+        /* 侧边栏 */
+        .app-sidebar {
+            width: 300px;
+            background: #fff;
+            border-right: 1px solid #e8e8e8;
+            display: flex !important;
+            flex-direction: column;
+            overflow: hidden;
+            min-height: 500px;
+        }
+
+        .sidebar-section {
+            padding: 20px;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .section-header h3 {
+            margin: 0;
+            font-size: 16px;
+            color: #333;
+        }
+
+        /* Agent 卡片样式 */
+        .agent-card {
+            border: 1px solid #e8e8e8;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: #fff;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .agent-card:hover {
+            border-color: #1890ff;
+            box-shadow: 0 8px 25px rgba(24, 144, 255, 0.15);
+            transform: translateY(-2px);
+        }
+
+        .agent-card.active {
+            border-color: #1890ff;
+            background: linear-gradient(135deg, #f6ffed 0%, #f0f9ff 100%);
+            box-shadow: 0 8px 25px rgba(24, 144, 255, 0.2);
+        }
+
+        .agent-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, #1890ff, #52c41a);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .agent-card:hover::before,
+        .agent-card.active::before {
+            opacity: 1;
+        }
+
+        .agent-card-header {
             display: flex;
             justify-content: space-between;
             align-items: flex-start;
-            padding: 8px 0;
+            margin-bottom: 12px;
+        }
+
+        .agent-name {
+            font-weight: 700;
+            color: #1a1a1a;
+            font-size: 18px;
+            margin: 0;
+            line-height: 1.3;
+        }
+
+        .agent-type {
+            font-size: 11px;
+            color: #1890ff;
+            background: linear-gradient(135deg, #e6f7ff, #f0f9ff);
+            padding: 4px 8px;
+            border-radius: 12px;
+            border: 1px solid #91d5ff;
+            font-weight: 500;
+            white-space: nowrap;
+        }
+
+        .agent-description {
+            font-size: 14px;
+            color: #666;
+            line-height: 1.6;
+            margin-bottom: 12px;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        /* Agent 列表样式 */
+        .agent-list {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        /* 主要内容区域 */
+        .app-main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* Agent 创建表单 */
+        .agent-form {
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 20px;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Agent 执行区域 */
+        .agent-execution-area {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+
+        .execution-header {
+            padding: 20px;
+            background: #fff;
+            border-bottom: 1px solid #e8e8e8;
+        }
+
+        .execution-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+            overflow: hidden;
+        }
+
+        .execution-history {
+            flex: 1;
+            overflow-y: auto;
+            margin-bottom: 20px;
+            background: #fff;
+            border-radius: 8px;
+            padding: 15px;
+        }
+
+        .execution-item {
+            border-bottom: 1px solid #f0f0f0;
+            padding: 15px 0;
+        }
+
+        .execution-item:last-child {
+            border-bottom: none;
+        }
+
+        .execution-input {
+            font-weight: 600;
+            color: #1890ff;
+            margin-bottom: 8px;
+        }
+
+        .execution-output {
+            color: #333;
+            white-space: pre-wrap;
+            line-height: 1.6;
+        }
+
+        .execution-meta {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            color: #999;
+            margin-top: 8px;
+        }
+
+        .execution-tools {
+            color: #52c41a;
+        }
+
+        /* 加载动画 */
+        @keyframes bounce {
+            0%, 80%, 100% {
+                transform: scale(0);
+            }
+            40% {
+                transform: scale(1);
+            }
+        }
+
+        /* 执行中状态样式 */
+        .executing-message {
+            border-left: 3px solid #f39c12 !important;
+            background: linear-gradient(90deg, #fff, #fef7e6) !important;
+        }
+
+        .failed-message {
+            border-left: 3px solid #f56c6c !important;
+            background: linear-gradient(90deg, #fff, #fef0f0) !important;
+        }
+
+        /* Markdown 渲染样式 */
+        .agent-execution-result h1,
+        .agent-execution-result h2,
+        .agent-execution-result h3 {
+            color: #1890ff;
+            margin: 16px 0 8px 0;
+            font-weight: 600;
+        }
+
+        .agent-execution-result h1 {
+            font-size: 1.5em;
+            border-bottom: 2px solid #1890ff;
+            padding-bottom: 8px;
+        }
+
+        .agent-execution-result h2 {
+            font-size: 1.3em;
+        }
+
+        .agent-execution-result h3 {
+            font-size: 1.1em;
+        }
+
+        .agent-execution-result ul,
+        .agent-execution-result ol {
+            margin: 8px 0;
+            padding-left: 24px;
+        }
+
+        .agent-execution-result li {
+            margin: 4px 0;
+            line-height: 1.6;
+        }
+
+        .agent-execution-result p {
+            margin: 8px 0;
+            line-height: 1.6;
+        }
+
+        .agent-execution-result strong {
+            color: #1890ff;
+            font-weight: 600;
+        }
+
+        .agent-execution-result code {
+            background: #f1f3f4;
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-family: 'Monaco', 'Consolas', monospace;
+            font-size: 0.9em;
+        }
+
+        .agent-execution-result pre {
+            background: #f6f8fa;
+            padding: 12px;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin: 12px 0;
+        }
+
+        .agent-execution-result blockquote {
+            border-left: 4px solid #1890ff;
+            margin: 12px 0;
+            padding: 8px 16px;
+            background: #f8f9fa;
+            color: #666;
+        }
+
+        /* 输入区域 */
+        .input-area {
+            background: #fff;
+            padding: 20px;
+            border-top: 1px solid #e8e8e8;
+        }
+
+        .input-row {
+            display: flex;
+            gap: 10px;
+            align-items: flex-end;
+        }
+
+        .input-row .el-textarea {
+            flex: 1;
+        }
+
+        /* 工具选择 */
+        .tool-selector {
+            margin-bottom: 15px;
+        }
+
+        .tool-tag {
+            margin: 2px;
+        }
+
+        /* 对话相关样式 */
+        .conversation-item {
+            border: 1px solid #e8e8e8;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: #fff;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
             position: relative;
+            overflow: hidden;
+        }
+
+        .conversation-item:hover {
+            border-color: #52c41a;
+            box-shadow: 0 8px 25px rgba(82, 196, 26, 0.15);
+            transform: translateY(-2px);
+        }
+
+        .conversation-item.active {
+            border-color: #52c41a;
+            background: linear-gradient(135deg, #f6ffed 0%, #f0f9ff 100%);
+            box-shadow: 0 8px 25px rgba(82, 196, 26, 0.2);
+        }
+
+        .conversation-item::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, #52c41a, #1890ff);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .conversation-item:hover::before,
+        .conversation-item.active::before {
+            opacity: 1;
+        }
+
+        .conversation-title {
+            font-weight: 700;
+            color: #1a1a1a;
+            margin-bottom: 8px;
+            font-size: 16px;
+            line-height: 1.4;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        .conversation-date {
+            font-size: 12px;
+            color: #999;
+            margin-bottom: 8px;
+        }
+
+        /* 对话列表样式 */
+        .conversation-list {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        /* 文档管理样式 */
+        .documents-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .documents-controls {
+            display: flex;
+            align-items: center;
+        }
+
+        .documents-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+        }
+
+        .document-card {
+            border: 1px solid #e8e8e8;
+            border-radius: 12px;
+            padding: 24px;
+            background: #fff;
+            transition: all 0.3s ease;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .document-card:hover {
+            border-color: #722ed1;
+            box-shadow: 0 8px 25px rgba(114, 46, 209, 0.15);
+            transform: translateY(-2px);
+        }
+
+        .document-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, #722ed1, #eb2f96);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .document-card:hover::before {
+            opacity: 1;
+        }
+
+        .document-icon {
+            font-size: 48px;
+            color: #1890ff;
+            text-align: center;
+            margin-bottom: 15px;
         }
 
         .document-info {
             flex: 1;
-            display: flex;
-            flex-direction: column;
-            min-width: 0; /* 允许缩小 */
-            padding-right: 30px; /* 为删除按钮预留空间 */
         }
 
         .document-title {
-            font-weight: 500;
+            font-weight: 600;
+            font-size: 16px;
             color: #333;
-            word-wrap: break-word;
-            overflow-wrap: break-word;
-            line-height: 1.3;
+            margin-bottom: 8px;
         }
 
-        .document-type {
+        .document-description {
+            color: #666;
+            font-size: 14px;
+            margin-bottom: 12px;
+            line-height: 1.4;
+        }
+
+        .document-meta {
+            display: flex;
+            justify-content: space-between;
             font-size: 12px;
             color: #999;
-            margin-top: 2px;
+            margin-bottom: 15px;
         }
 
         .document-actions {
-            position: absolute;
-            right: 0;
-            top: 8px;
-            opacity: 0;
-            transition: opacity 0.2s;
-            flex-shrink: 0; /* 防止缩小 */
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
         }
 
-        .document-item:hover .document-actions {
-            opacity: 1;
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #666;
         }
 
-        .delete-doc-btn {
-            width: 20px !important;
-            height: 20px !important;
-            padding: 0 !important;
-            font-size: 14px !important;
-            line-height: 1 !important;
-            min-width: 20px !important;
+        .empty-state p {
+            margin-bottom: 20px;
+            font-size: 16px;
+        }
+
+        /* 响应式设计 */
+        @media (max-width: 768px) {
+            .app-sidebar {
+                width: 100%;
+                position: absolute;
+                z-index: 1000;
+                height: 100%;
+                transform: translateX(-100%);
+                transition: transform 0.3s;
+            }
+
+            .app-sidebar.open {
+                transform: translateX(0);
+            }
+
+            .app-main {
+                width: 100%;
+            }
         }
     </style>
+
     <!-- 引入Vue.js (本地资源) -->
     <script src="{% static 'static/js/vue.global.prod.js' %}"></script>
     <!-- 引入Axios (本地资源) -->
@@ -212,59 +626,45 @@
         <!-- 未登录状态 -->
         <div class="login-container" v-if="!isLoggedIn">
             <div class="login-box">
-                <h1 class="app-title">SmartDocs</h1>
-                <h2 class="app-subtitle">智能文档问答平台</h2>
+                <h1 class="app-title">AgentFlow</h1>
+                <h2 class="app-subtitle">智能体平台</h2>
 
                 <!-- 登录/注册切换 -->
-                <div class="tab-header">
-                    <button :class="['tab-button', activeTab === 'login' ? 'active' : '']"
-                        @click="activeTab = 'login'">登录</button>
-                    <button :class="['tab-button', activeTab === 'register' ? 'active' : '']"
-                        @click="activeTab = 'register'">注册</button>
-                </div>
-
-                <!-- 登录表单 -->
-                <div class="login-form" v-if="activeTab === 'login'">
-                    <form @submit.prevent="handleLogin">
-                        <div class="form-group">
-                            <label for="username">用户名</label>
-                            <input type="text" id="username" v-model="loginForm.username" placeholder="请输入用户名"
-                                class="form-control" />
-                        </div>
-                        <div class="form-group">
-                            <label for="password">密码</label>
-                            <input type="password" id="password" v-model="loginForm.password" placeholder="请输入密码"
-                                class="form-control" />
-                        </div>
-                        <button type="submit" class="btn btn-primary btn-block" :disabled="loading">
-                            {{ loading ? '登录中...' : '登录' }}
-                        </button>
-                    </form>
-                </div>
-
-                <!-- 注册表单 -->
-                <div class="register-form" v-if="activeTab === 'register'">
-                    <form @submit.prevent="handleRegister">
-                        <div class="form-group">
-                            <label for="reg-username">用户名</label>
-                            <input type="text" id="reg-username" v-model="registerForm.username" placeholder="请输入用户名"
-                                class="form-control" />
-                        </div>
-                        <div class="form-group">
-                            <label for="reg-password">密码</label>
-                            <input type="password" id="reg-password" v-model="registerForm.password" placeholder="请输入密码"
-                                class="form-control" />
-                        </div>
-                        <div class="form-group">
-                            <label for="reg-confirm-password">确认密码</label>
-                            <input type="password" id="reg-confirm-password" v-model="registerForm.confirmPassword"
-                                placeholder="请再次输入密码" class="form-control" />
-                        </div>
-                        <button type="submit" class="btn btn-primary btn-block" :disabled="loading">
-                            {{ loading ? '注册中...' : '注册' }}
-                        </button>
-                    </form>
-                </div>
+                <el-tabs v-model="activeTab">
+                    <el-tab-pane label="登录" name="login">
+                        <el-form @submit.prevent="handleLogin">
+                            <el-form-item>
+                                <el-input v-model="loginForm.username" placeholder="请输入用户名" prefix-icon="el-icon-user"></el-input>
+                            </el-form-item>
+                            <el-form-item>
+                                <el-input v-model="loginForm.password" type="password" placeholder="请输入密码" prefix-icon="el-icon-lock"></el-input>
+                            </el-form-item>
+                            <el-form-item>
+                                <el-button type="primary" native-type="submit" :loading="loading" style="width: 100%">
+                                    {{ loading ? '登录中...' : '登录' }}
+                                </el-button>
+                            </el-form-item>
+                        </el-form>
+                    </el-tab-pane>
+                    <el-tab-pane label="注册" name="register">
+                        <el-form @submit.prevent="handleRegister">
+                            <el-form-item>
+                                <el-input v-model="registerForm.username" placeholder="请输入用户名" prefix-icon="el-icon-user"></el-input>
+                            </el-form-item>
+                            <el-form-item>
+                                <el-input v-model="registerForm.password" type="password" placeholder="请输入密码" prefix-icon="el-icon-lock"></el-input>
+                            </el-form-item>
+                            <el-form-item>
+                                <el-input v-model="registerForm.confirmPassword" type="password" placeholder="请再次输入密码" prefix-icon="el-icon-lock"></el-input>
+                            </el-form-item>
+                            <el-form-item>
+                                <el-button type="primary" native-type="submit" :loading="loading" style="width: 100%">
+                                    {{ loading ? '注册中...' : '注册' }}
+                                </el-button>
+                            </el-form-item>
+                        </el-form>
+                    </el-tab-pane>
+                </el-tabs>
             </div>
         </div>
 
@@ -273,7 +673,7 @@
             <!-- 顶部导航 -->
             <header class="app-header">
                 <div class="header-left">
-                    <h1 class="app-title">SmartDocs</h1>
+                    <h1 class="app-title">AgentFlow</h1>
                 </div>
                 <div class="header-right">
                     <span class="user-info">{{ userInfo.username }}</span>
@@ -281,168 +681,400 @@
                 </div>
             </header>
 
-            <!-- 主内容区 -->
-            <div class="app-content">
-                <!-- 侧边栏 -->
-                <aside class="app-sidebar">
-                    <div class="sidebar-section">
-                        <div class="section-header">
-                            <h3>我的对话</h3>
-                            <el-button size="small" @click.native="createNewConversation" type="primary"
-                                icon="el-icon-plus">新对话</el-button>
-                        </div>
-                        <ul class="conversation-list">
-                            <li v-for="conv in conversations" :key="conv.id" @click="selectConversation(conv)"
-                                :class="{'active': selectedConversation && selectedConversation.id === conv.id}">
-                                <div class="conversation-item">
-                                    <div>
-                                        <span class="conversation-title">{{ conv.title }}</span>
+            <!-- 主标签页 -->
+            <div class="main-tabs">
+                <el-tabs v-model="activeMainTab" @tab-click="handleTabClick">
+                    <el-tab-pane label="智能体" name="agents">
+                        <template #label>
+                            <i class="el-icon-cpu"></i> 智能体
+                        </template>
+                        <!-- 智能体页面内容 -->
+                        <div style="padding: 20px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                                <h2>我的智能体</h2>
+                                <el-button type="primary" @click="showCreateAgentDialog = true" icon="el-icon-plus">
+                                    创建智能体
+                                </el-button>
+                            </div>
+                            
+                            <!-- 智能体列表 -->
+                            <div v-if="agents.length > 0 && !selectedAgent" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px;">
+                                <div v-for="agent in agents" :key="agent.id" class="agent-card" @click="selectAgent(agent)">
+                                    <div class="agent-card-header">
+                                        <div class="agent-name">{{ agent.name }}</div>
+                                        <div class="agent-type">{{ getAgentTypeLabel(agent.agent_type) }}</div>
                                     </div>
-                                    <div class="delete-btn">
-                                        <el-tooltip content="删除会话" placement="top">
-                                            <el-button size="mini" type="danger"
-                                                @click.stop="deleteConversation(conv.id)" class="close-btn">
-                                                ×
-                                            </el-button>
-                                        </el-tooltip>
-                                    </div>
-                                </div>
-                            </li>
-                        </ul>
-                    </div>
-
-                    <div class="sidebar-section">
-                        <div class="section-header">
-                            <h3>我的文档</h3>
-                            <el-button size="small" @click.native="openUploadDialog" type="primary"
-                                icon="el-icon-upload">上传</el-button>
-                        </div>
-                        <ul class="document-list">
-                            <li v-for="doc in documents" :key="doc.id">
-                                <div class="document-item">
-                                    <div class="document-info">
-                                        <span class="document-title">{{ doc.title }}</span>
-                                        <span class="document-type">{{ doc.file_type }}</span>
-                                    </div>
-                                    <div class="document-actions">
-                                        <el-tooltip content="删除文档" placement="top">
-                                            <el-button size="mini" type="danger"
-                                                @click.stop="deleteDocument(doc.id, doc.title)"
-                                                class="delete-doc-btn">
-                                                ×
-                                            </el-button>
-                                        </el-tooltip>
+                                    <div class="agent-description">{{ agent.description || '暂无描述' }}</div>
+                                    <div style="margin-top: 10px;">
+                                        <el-tag size="small" v-if="agent.available_tools && agent.available_tools.length">
+                                            工具: {{ Array.isArray(agent.available_tools) ? agent.available_tools.join(', ') : agent.available_tools }}
+                                        </el-tag>
                                     </div>
                                 </div>
-                            </li>
-                        </ul>
-                    </div>
-                </aside>
-
-                <!-- 主要内容 -->
-                <main class="app-main">
-                    <!-- 对话区域 -->
-                    <div class="conversation-area" v-if="selectedConversation">
-                        <div class="conversation-header">
-                            <h2>{{ selectedConversation.title }}</h2>
-                        </div>
-
-                        <div class="messages-container" ref="messagesContainer">
-                            <div v-for="message in messages" :key="message.id"
-                                :class="['message', message.message_type === 'user' ? 'user-message' : 'assistant-message', currentStreamingMessage === message ? 'streaming' : '']">
-                                <div class="message-content">
-                                    <div class="message-text" v-html="renderMarkdown(message.content)"></div>
-                                    <div class="message-footer">
-                                        <div class="message-time">{{ formatDate(message.created_at) }}</div>
-                                        <div v-if="message.model" class="message-model">模型: {{ message.model }}</div>
+                            </div>
+                            
+                            <!-- 智能体详情页 -->
+                            <div v-if="selectedAgent" style="padding: 20px; height: calc(100vh - 150px); display: flex; flex-direction: column;">
+                                <div style="margin-bottom: 20px; display: flex; align-items: center; gap: 15px; flex-shrink: 0;">
+                                    <el-button @click="selectedAgent = null" icon="el-icon-arrow-left" type="text" style="color: #409eff;">
+                                        <i class="el-icon-arrow-left"></i> 返回列表
+                                    </el-button>
+                                    <div style="flex: 1;">
+                                        <h2 style="margin: 0; color: #303133; font-size: 24px;">{{ selectedAgent.name }}</h2>
+                                        <el-tag type="success" style="margin-top: 5px;">{{ getAgentTypeLabel(selectedAgent.agent_type) }}</el-tag>
                                     </div>
-
-                                    <!-- 引用文档 -->
-                                    <div v-if="message.referenced_documents && message.referenced_documents.length > 0"
-                                        class="references">
-                                        <div class="references-header">参考文档：</div>
-                                        <div v-for="ref in message.referenced_documents" :key="ref.document_id"
-                                            class="reference-item">
-                                            <div class="reference-title">{{ ref.title }}</div>
-                                            <div class="reference-score">相关度: {{ (ref.relevance_score * 100).toFixed(0)
-                                                }}%</div>
-                                            <div class="reference-preview" v-if="ref.content_preview">{{ ref.content_preview }}</div>
+                                </div>
+                                
+                                <div style="flex: 1; display: flex; gap: 20px; min-height: 0;">
+                                    <!-- 左侧信息面板 -->
+                                    <div style="width: 350px; flex-shrink: 0;">
+                                        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 12px; margin-bottom: 20px;">
+                                            <h3 style="margin: 0 0 15px 0; color: white;">智能体信息</h3>
+                                            <p style="margin: 0; color: rgba(255,255,255,0.9); line-height: 1.6;">{{ selectedAgent.description || '暂无描述' }}</p>
+                                        </div>
+                                        
+                                        <div style="background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.1);">
+                                            <h4 style="margin: 0 0 15px 0; color: #303133;">可用工具</h4>
+                                            <div v-if="selectedAgent.available_tools && selectedAgent.available_tools.length">
+                                                <el-tag v-for="tool in (Array.isArray(selectedAgent.available_tools) ? selectedAgent.available_tools : [selectedAgent.available_tools])"
+                                                       :key="tool"
+                                                       style="margin: 2px 4px 2px 0;"
+                                                       type="info">
+                                                    <i class="el-icon-cpu"></i> {{ tool }}
+                                                </el-tag>
+                                            </div>
+                                            <span v-else style="color: #909399; font-style: italic;">暂无可用工具</span>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- 右侧对话区域 -->
+                                    <div style="flex: 1; background: #fff; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.1); display: flex; flex-direction: column; min-height: 0;">
+                                        <div style="padding: 20px; border-bottom: 1px solid #f0f0f0; flex-shrink: 0;">
+                                            <h4 style="margin: 0; color: #303133;">与智能体对话</h4>
+                                        </div>
+                                        
+                                        <!-- 执行历史 -->
+                                        <div style="flex: 1; overflow-y: auto; padding: 20px; min-height: 200px;">
+                                            <div v-if="agentExecutions.length === 0" style="text-align: center; color: #909399; padding: 40px;">
+                                                <i class="el-icon-chat-dot-square" style="font-size: 48px; margin-bottom: 15px; display: block;"></i>
+                                                <p>还没有执行记录，开始与智能体对话吧！</p>
+                                            </div>
+                                            <div v-for="execution in agentExecutions" :key="execution.id" style="margin-bottom: 20px;">
+                                                <!-- 用户消息 -->
+                                                <div style="display: flex; justify-content: flex-end; margin-bottom: 10px;">
+                                                    <div style="background: linear-gradient(135deg, #409eff, #36a9e1); color: white; padding: 12px 16px; border-radius: 18px 18px 5px 18px; max-width: 70%; box-shadow: 0 2px 8px rgba(64, 158, 255, 0.3);">
+                                                        {{ execution.user_input }}
+                                                    </div>
+                                                </div>
+                                                <!-- 智能体回复 -->
+                                                <div style="display: flex; justify-content: flex-start;">
+                                                    <div :class="{ 'executing-message': execution.isExecuting, 'failed-message': execution.status === 'failed' }" style="background: #f5f7fa; color: #303133; padding: 12px 16px; border-radius: 18px 18px 18px 5px; max-width: 70%; box-shadow: 0 2px 8px rgba(0,0,0,0.1); border-left: 3px solid #409eff; position: relative;">
+                                                        <!-- 执行中的加载动画 -->
+                                                        <div v-if="execution.isExecuting" style="display: flex; align-items: center; gap: 8px;">
+                                                            <div style="display: flex; gap: 4px;">
+                                                                <div style="width: 6px; height: 6px; border-radius: 50%; background: #409eff; animation: bounce 1.4s infinite ease-in-out;"></div>
+                                                                <div style="width: 6px; height: 6px; border-radius: 50%; background: #409eff; animation: bounce 1.4s infinite ease-in-out; animation-delay: 0.2s;"></div>
+                                                                <div style="width: 6px; height: 6px; border-radius: 50%; background: #409eff; animation: bounce 1.4s infinite ease-in-out; animation-delay: 0.4s;"></div>
+                                                            </div>
+                                                            <span style="color: #409eff; font-style: italic;">正在思考中...</span>
+                                                        </div>
+                                                        <!-- 正常结果显示 -->
+                                                        <div v-else>
+                                                            <div v-if="execution.status === 'failed'" style="color: #f56c6c;">
+                                                                <i class="el-icon-warning"></i> {{ execution.agent_output || execution.response }}
+                                                            </div>
+                                                            <div v-else class="agent-execution-result" v-html="formatMarkdown(execution.agent_output || execution.response)">
+                                                            </div>
+                                                            <div style="font-size: 12px; color: #909399; margin-top: 8px;">
+                                                                <i class="el-icon-time"></i> {{ formatDate(execution.started_at || execution.created_at) }}
+                                                                <span v-if="execution.execution_time" style="margin-left: 10px;">
+                                                                    <i class="el-icon-stopwatch"></i> 耗时 {{ parseFloat(execution.execution_time).toFixed(2) }}s
+                                                                </span>
+                                                                <span v-if="execution.tools_used && execution.tools_used.length > 0" style="margin-left: 10px;">
+                                                                    <i class="el-icon-tools"></i> 工具 {{ execution.tools_used.join(', ') }}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- 输入区域 -->
+                                        <div style="padding: 20px; border-top: 1px solid #f0f0f0; flex-shrink: 0;">
+                                            <div style="display: flex; gap: 10px;">
+                                                <el-input v-model="agentInput"
+                                                         type="textarea"
+                                                         :rows="3"
+                                                         placeholder="请输入您想让智能体执行的任务..."
+                                                         @keyup.ctrl.enter="executeAgent"
+                                                         style="flex: 1;"></el-input>
+                                            </div>
+                                            <div style="margin-top: 10px; display: flex; justify-content: flex-end;">
+                                                <el-button type="primary" @click="executeAgent" :loading="executingAgent" style="min-width: 100px;">
+                                                    <i class="el-icon-s-promotion"></i> 执行任务
+                                                </el-button>
+                                            </div>
+                                            <div style="font-size: 12px; color: #909399; margin-top: 5px; text-align: right;">
+                                                按 Ctrl + Enter 快速发送
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
                             </div>
-                        </div>
-
-                        <div class="input-area">
-                            <div class="response-options">
-                                <el-switch v-model="useStreamingMode" active-text="流式响应" inactive-text="普通响应"
-                                    active-color="#13ce66" inactive-color="#ff4949">
-                                </el-switch>
-                                <el-select v-model="selectedModel" size="small" placeholder="选择模型">
-                                    <el-option v-for="item in modelOptions" :key="item.value" :label="item.label"
-                                        :value="item.value">
-                                    </el-option>
-                                </el-select>
-                            </div>
-                            <div class="message-input-row">
-                                <el-input v-model="newMessage" type="textarea" :rows="3"
-                                    placeholder="输入您的问题... (Ctrl+Enter发送)" @keydown="handleMessageKeydown"></el-input>
-                                <el-button type="primary" @click.native="sendMessage"
-                                    :loading="sendingMessage">发送</el-button>
+                            
+                            <!-- 空状态 -->
+                            <div v-else-if="agents.length === 0" class="empty-state">
+                                <i class="el-icon-cpu" style="font-size: 64px; color: #dcdfe6;"></i>
+                                <p>暂无智能体</p>
+                                <el-button type="primary" @click="showCreateAgentDialog = true">创建第一个智能体</el-button>
                             </div>
                         </div>
-                    </div>
+                    </el-tab-pane>
 
-                    <!-- 欢迎页 -->
-                    <div class="welcome-area" v-else>
-                        <div class="welcome-content">
-                            <h2>欢迎使用 SmartDocs 智能文档问答平台</h2>
-                            <p>请从左侧选择一个对话，或创建一个新的对话</p>
-                            <el-button type="primary" @click="createNewConversation">开始新对话</el-button>
-                        </div>
-
-                        <!-- 文档检索区域 -->
-                        <div class="search-area">
-                            <h3>文档检索</h3>
-                            <div class="search-input">
-                                <el-input v-model="searchQuery" placeholder="输入关键词搜索文档..."></el-input>
-                                <el-button type="primary" @click="searchDocuments" :loading="searching">搜索</el-button>
+                    <el-tab-pane label="文档问答" name="qa">
+                        <template #label>
+                            <i class="el-icon-chat-dot-square"></i> 文档问答
+                        </template>
+                        <!-- 文档问答页面内容 -->
+                        <div style="padding: 20px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                                <h2>对话历史</h2>
+                                <el-button type="primary" @click="newConversationDialogVisible = true" icon="el-icon-plus">
+                                    新建对话
+                                </el-button>
                             </div>
+                            
+                            <!-- 对话列表 -->
+                            <div v-if="conversations.length > 0 && !selectedConversation" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px;">
+                                <div v-for="conversation in conversations" :key="conversation.id" class="conversation-item" @click="selectConversation(conversation)">
+                                    <div class="conversation-title">{{ conversation.title }}</div>
+                                    <div class="conversation-date">{{ formatDate(conversation.created_at) }}</div>
+                                    <div style="margin-top: 10px;">
+                                        <el-tag size="small" type="success">{{ formatDate(conversation.created_at) }}</el-tag>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- 对话详情页 -->
+                            <div v-if="selectedConversation" style="height: calc(100vh - 150px); display: flex; flex-direction: column; padding: 20px;">
+                                <!-- 头部 -->
+                                <div style="margin-bottom: 20px; display: flex; align-items: center; gap: 15px; flex-shrink: 0;">
+                                    <el-button @click="selectedConversation = null" icon="el-icon-arrow-left" type="text" style="color: #409eff;">
+                                        <i class="el-icon-arrow-left"></i> 返回列表
+                                    </el-button>
+                                    <div style="flex: 1;">
+                                        <h2 style="margin: 0; color: #303133; font-size: 24px;">{{ selectedConversation.title }}</h2>
+                                        <el-tag size="small" type="info" style="margin-top: 5px;">
+                                            <i class="el-icon-time"></i> {{ formatDate(selectedConversation.created_at) }}
+                                        </el-tag>
+                                    </div>
+                                </div>
+                                
+                                <!-- 聊天区域 -->
+                                <div style="flex: 1; background: linear-gradient(to bottom, #f8fafc, #ffffff); border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); display: flex; flex-direction: column; min-height: 0; overflow: hidden;">
+                                    <!-- 消息列表 -->
+                                    <div ref="messagesContainer" style="flex: 1; padding: 20px; overflow-y: auto;">
+                                        <div v-if="conversationMessages.length === 0" style="text-align: center; color: #909399; padding: 60px 20px;">
+                                            <i class="el-icon-chat-dot-square" style="font-size: 64px; margin-bottom: 20px; display: block; color: #dcdfe6;"></i>
+                                            <h3 style="margin: 0 0 10px 0; color: #606266;">暂无消息</h3>
+                                            <p style="margin: 0; color: #909399;">开始与AI助手对话吧！</p>
+                                        </div>
+                                        <div v-for="message in conversationMessages" :key="message.id" style="margin-bottom: 24px;">
+                                            <!-- 用户消息 -->
+                                            <div v-if="message.message_type === 'user'" style="display: flex; justify-content: flex-end;">
+                                                <div style="background: linear-gradient(135deg, #409eff, #36a9e1); color: white; padding: 14px 18px; border-radius: 20px 20px 6px 20px; max-width: 75%; word-wrap: break-word; box-shadow: 0 3px 12px rgba(64, 158, 255, 0.3); position: relative;">
+                                                    <div style="font-size: 15px; line-height: 1.5;">{{ message.content }}</div>
+                                                    <div style="font-size: 11px; opacity: 0.8; margin-top: 6px; text-align: right;">
+                                                        {{ formatDate(message.created_at) }}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <!-- 助手消息 -->
+                                            <div v-else style="display: flex; justify-content: flex-start; align-items: flex-start; gap: 10px;">
+                                                <div style="width: 36px; height: 36px; background: linear-gradient(135deg, #67c23a, #85ce61); border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 4px;">
+                                                    <i class="el-icon-cpu" style="color: white; font-size: 16px;"></i>
+                                                </div>
+                                                <div style="flex: 1; max-width: 75%;">
+                                                    <div style="background: white; color: #303133; padding: 14px 18px; border-radius: 20px 20px 20px 6px; word-wrap: break-word; box-shadow: 0 2px 12px rgba(0,0,0,0.1); border: 1px solid #f0f0f0;">
+                                                        <div style="font-size: 15px; line-height: 1.6;" v-html="formatMarkdown(message.content)"></div>
+                                                        
+                                                        <!-- 引用文档 -->
+                                                        <div v-if="message.referenced_documents && message.referenced_documents.length > 0" style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #f0f0f0;">
+                                                            <div style="font-size: 12px; color: #909399; margin-bottom: 8px; font-weight: 600;">
+                                                                <i class="el-icon-document"></i> 参考文档 ({{ message.referenced_documents.length }})
+                                                            </div>
+                                                            <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                                                                <div v-for="doc in message.referenced_documents" :key="doc.document_id"
+                                                                     style="background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 6px; padding: 6px 10px; font-size: 11px; color: #495057; cursor: pointer; transition: all 0.2s;"
+                                                                     @mouseenter="$event.target.style.background = '#e9ecef'"
+                                                                     @mouseleave="$event.target.style.background = '#f8f9fa'"
+                                                                     @click="viewDocumentDetail(doc)"
+                                                                     title="点击查看文档片段详情">
+                                                                    <i class="el-icon-document"></i> {{ doc.title }}
+                                                                    <span style="margin-left: 4px; color: #6c757d;">({{ (doc.relevance_score * 100).toFixed(0) }}%)</span>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        
+                                                        <div style="font-size: 11px; color: #909399; margin-top: 8px;">
+                                                            <i class="el-icon-time"></i> {{ formatDate(message.created_at) }}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- 正在发送状态 -->
+                                        <div v-if="sendingMessage" style="display: flex; justify-content: flex-start; align-items: flex-start; gap: 10px; margin-bottom: 24px;">
+                                            <div style="width: 36px; height: 36px; background: linear-gradient(135deg, #67c23a, #85ce61); border-radius: 50%; display: flex; align-items: center; justify-content: center;">
+                                                <i class="el-icon-loading" style="color: white; font-size: 16px;"></i>
+                                            </div>
+                                            <div style="background: white; color: #909399; padding: 14px 18px; border-radius: 20px 20px 20px 6px; box-shadow: 0 2px 12px rgba(0,0,0,0.1); border: 1px solid #f0f0f0;">
+                                                <i class="el-icon-loading"></i> AI正在思考中...
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- 输入区域 -->
+                                    <div style="padding: 20px; background: white; border-top: 1px solid #f0f0f0; flex-shrink: 0;">
+                                        <!-- 对话设置区域 -->
+                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; padding: 12px; background: #f8f9fa; border-radius: 8px;">
+                                            <div style="display: flex; align-items: center; gap: 16px;">
+                                                <div style="display: flex; align-items: center; gap: 8px;">
+                                                    <span style="font-size: 14px; color: #606266;">流式模式：</span>
+                                                    <el-switch v-model="useStreamingMode"
+                                                              active-text="开启"
+                                                              inactive-text="关闭"
+                                                              style="margin-left: 4px;">
+                                                    </el-switch>
+                                                </div>
+                                                <div style="display: flex; align-items: center; gap: 8px;">
+                                                    <span style="font-size: 14px; color: #606266;">模型：</span>
+                                                    <el-select v-model="selectedModel" style="width: 140px;" size="small">
+                                                        <el-option v-for="option in modelOptions"
+                                                                  :key="option.value"
+                                                                  :label="option.label"
+                                                                  :value="option.value">
+                                                        </el-option>
+                                                    </el-select>
+                                                </div>
+                                            </div>
+                                            <div style="font-size: 12px; color: #909399;">
+                                                <i class="el-icon-info"></i>
+                                                流式模式：逐字显示回复 | 非流式模式：一次性显示完整回复
+                                            </div>
+                                        </div>
+                                        
+                                        <div style="display: flex; gap: 12px; align-items: flex-end;">
+                                            <el-input v-model="currentMessage"
+                                                     type="textarea"
+                                                     :rows="2"
+                                                     placeholder="请输入您的问题... (按 Ctrl + Enter 发送)"
+                                                     @keyup.ctrl.enter="sendMessage"
+                                                     :disabled="sendingMessage"
+                                                     style="flex: 1;"
+                                                     resize="none">
+                                            </el-input>
+                                            <el-button type="primary"
+                                                      @click="sendMessage"
+                                                      :loading="sendingMessage"
+                                                      :disabled="!currentMessage.trim()"
+                                                      style="height: 64px; width: 80px;">
+                                                <i class="el-icon-s-promotion" v-if="!sendingMessage"></i>
+                                                发送
+                                            </el-button>
+                                        </div>
+                                        <div style="font-size: 12px; color: #909399; margin-top: 8px; text-align: right;">
+                                            按 Ctrl + Enter 快速发送
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- 空状态 -->
+                            <div v-else-if="conversations.length === 0" class="empty-state">
+                                <i class="el-icon-chat-dot-square" style="font-size: 64px; color: #dcdfe6;"></i>
+                                <p>暂无对话记录</p>
+                                <el-button type="primary" @click="newConversationDialogVisible = true">开始对话</el-button>
+                            </div>
+                        </div>
+                    </el-tab-pane>
 
-                            <div class="search-results" v-if="searchResults.length > 0">
-                                <h4>搜索结果 ({{ searchResults.length }})</h4>
-                                <div v-for="result in searchResults" :key="result.id" class="search-result-item">
-                                    <div class="result-title">{{ result.title }}</div>
-                                    <div class="result-content">{{ result.content }}</div>
-                                    <div class="result-score">相关度: {{ (result.score * 100).toFixed(0) }}%</div>
+                    <el-tab-pane label="文档管理" name="documents">
+                        <template #label>
+                            <i class="el-icon-folder"></i> 文档管理
+                        </template>
+                        <!-- 文档管理页面内容 -->
+                        <div style="padding: 20px; width: 100%; height: 100%;">
+                            <div class="documents-header">
+                                <h2>文档管理</h2>
+                                <div class="documents-controls">
+                                    <el-input v-model="searchQuery"
+                                             placeholder="搜索文档..."
+                                             size="small"
+                                             @input="searchDocuments"
+                                             style="width: 300px; margin-right: 10px;">
+                                        <template #prefix>
+                                            <i class="el-icon-search"></i>
+                                        </template>
+                                    </el-input>
+                                    <el-button type="primary" @click="uploadDialogVisible = true" icon="el-icon-upload">
+                                        上传文档
+                                    </el-button>
+                                </div>
+                            </div>
+                            
+                            <div class="documents-content">
+                                <div v-if="documents.length > 0" class="documents-grid">
+                                    <div v-for="document in documents" :key="document.id" class="document-card">
+                                        <div class="document-icon">
+                                            <i class="el-icon-document"></i>
+                                        </div>
+                                        <div class="document-info">
+                                            <div class="document-title">{{ document.title }}</div>
+                                            <div class="document-description">{{ document.description }}</div>
+                                            <div class="document-meta">
+                                                <span class="document-size">{{ formatFileSize(document.file_size) }}</span>
+                                                <span class="document-date">{{ formatDate(document.created_at) }}</span>
+                                            </div>
+                                        </div>
+                                        <div class="document-actions">
+                                            <el-button size="small" type="text" @click="downloadDocument(document)">
+                                                下载
+                                            </el-button>
+                                            <el-button size="small" type="text" @click="deleteDocument(document.id)"
+                                                      style="color: #f56c6c;">
+                                                删除
+                                            </el-button>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div v-else class="empty-state">
+                                    <i class="el-icon-folder-opened" style="font-size: 64px; color: #dcdfe6;"></i>
+                                    <p>暂无文档</p>
+                                    <el-button type="primary" @click="uploadDialogVisible = true">上传第一个文档</el-button>
+                                </div>
+                                
+                                <!-- 分页组件 -->
+                                <div v-if="documentPagination.total > documentPagination.pageSize" class="documents-pagination" style="margin-top: 20px; text-align: center;">
+                                    <el-pagination
+                                        @current-change="handleDocumentPageChange"
+                                        @size-change="handleDocumentPageSizeChange"
+                                        :current-page="documentPagination.page"
+                                        :page-sizes="[5, 10, 20, 50]"
+                                        :page-size="documentPagination.pageSize"
+                                        layout="total, sizes, prev, pager, next, jumper"
+                                        :total="documentPagination.total">
+                                    </el-pagination>
                                 </div>
                             </div>
                         </div>
-                    </div>
-                </main>
+                    </el-tab-pane>
+                </el-tabs>
             </div>
         </div>
-
-        <!-- 上传文档对话框 -->
-        <el-dialog title="上传文档" v-model="uploadDialogVisible" width="500px">
-            <el-form @submit.prevent="uploadDocument">
-                <el-form-item label="文档标题">
-                    <el-input v-model="uploadForm.title" placeholder="请输入文档标题"></el-input>
-                </el-form-item>
-                <el-form-item label="文档描述">
-                    <el-input v-model="uploadForm.description" type="textarea" :rows="3"
-                        placeholder="请输入文档描述（可选）"></el-input>
-                </el-form-item>
-                <el-form-item label="文件">
-                    <el-upload class="upload-demo" action="#" :http-request="handleFileUpload"
-                        :before-upload="beforeUpload" :limit="1">
-                        <el-button size="small" type="primary">选择文件</el-button>
-                        <div slot="tip" class="el-upload__tip">只能上传PDF/DOCX/TXT文件，且不超过10MB</div>
-                    </el-upload>
-                </el-form-item>
-                <el-button type="primary" @click="uploadDocument" :loading="uploading">上传</el-button>
-            </el-form>
-        </el-dialog>
 
         <!-- 新建对话对话框 -->
         <el-dialog title="新建对话" v-model="newConversationDialogVisible" width="400px">
@@ -450,13 +1082,111 @@
                 <el-form-item label="对话标题">
                     <el-input v-model="newConversationTitle" placeholder="请输入对话标题"></el-input>
                 </el-form-item>
-                <el-button type="primary" @click="submitNewConversation">创建</el-button>
             </el-form>
+            <template #footer>
+                <el-button @click="newConversationDialogVisible = false">取消</el-button>
+                <el-button type="primary" @click="confirmCreateConversation">创建</el-button>
+            </template>
+        </el-dialog>
+
+        <!-- 创建智能体对话框 -->
+        <el-dialog title="创建智能体" v-model="showCreateAgentDialog" width="600px">
+            <el-form :model="createAgentForm" label-width="100px">
+                <el-form-item label="名称" required>
+                    <el-input v-model="createAgentForm.name" placeholder="请输入智能体名称"></el-input>
+                </el-form-item>
+                <el-form-item label="描述">
+                    <el-input v-model="createAgentForm.description" type="textarea" placeholder="请输入智能体描述"></el-input>
+                </el-form-item>
+                <el-form-item label="类型">
+                    <el-select v-model="createAgentForm.agent_type" placeholder="请选择智能体类型">
+                        <el-option label="ReAct代理" value="react"></el-option>
+                        <el-option label="结构化聊天代理" value="structured_chat"></el-option>
+                        <el-option label="对话代理" value="conversational"></el-option>
+                    </el-select>
+                </el-form-item>
+                <el-form-item label="可用工具">
+                    <el-checkbox-group v-model="createAgentForm.available_tools">
+                        <el-checkbox label="document_search">文档搜索</el-checkbox>
+                        <el-checkbox label="calculator">计算器</el-checkbox>
+                        <el-checkbox label="python_repl">Python执行器</el-checkbox>
+                        <el-checkbox label="web_search">网络搜索</el-checkbox>
+                    </el-checkbox-group>
+                </el-form-item>
+                <el-form-item label="系统提示">
+                    <el-input v-model="createAgentForm.system_prompt" type="textarea" :rows="3"
+                              placeholder="请输入系统提示词"></el-input>
+                </el-form-item>
+            </el-form>
+            <template #footer>
+                <el-button @click="showCreateAgentDialog = false">取消</el-button>
+                <el-button type="primary" @click="createAgent" :loading="creatingAgent">创建</el-button>
+            </template>
+        </el-dialog>
+
+        <!-- 文档详情对话框 -->
+        <el-dialog title="文档片段详情" v-model="documentDetailVisible" width="800px" :close-on-click-modal="false">
+            <div v-loading="loadingDocumentDetail" style="min-height: 200px;">
+                <div v-if="selectedDocumentDetail">
+                    <!-- 文档基本信息 -->
+                    <div style="background: #f8f9fa; padding: 16px; border-radius: 8px; margin-bottom: 20px;">
+                        <h3 style="margin: 0 0 12px 0; color: #333; font-size: 18px;">
+                            <i class="el-icon-document" style="color: #409eff; margin-right: 8px;"></i>
+                            {{ selectedDocumentDetail.title }}
+                        </h3>
+                        <div style="display: flex; gap: 20px; font-size: 14px; color: #666;">
+                            <div>
+                                <strong>相关度：</strong>
+                                <span style="color: #67c23a; font-weight: bold;">
+                                    {{ selectedDocumentDetail.relevance_score ? (selectedDocumentDetail.relevance_score * 100).toFixed(1) + '%' : 'N/A' }}
+                                </span>
+                            </div>
+                            <div v-if="selectedDocumentDetail.created_at">
+                                <strong>创建时间：</strong>
+                                {{ formatDate(selectedDocumentDetail.created_at) }}
+                            </div>
+                            <div v-if="selectedDocumentDetail.file_size">
+                                <strong>文件大小：</strong>
+                                {{ (selectedDocumentDetail.file_size / 1024 / 1024).toFixed(2) }} MB
+                            </div>
+                        </div>
+                        <div v-if="selectedDocumentDetail.description" style="margin-top: 8px; color: #666; font-size: 14px;">
+                            <strong>描述：</strong>{{ selectedDocumentDetail.description }}
+                        </div>
+                    </div>
+
+                    <!-- 文档片段内容 -->
+                    <div style="background: white; border: 1px solid #e4e7ed; border-radius: 8px; padding: 20px;">
+                        <h4 style="margin: 0 0 16px 0; color: #333; font-size: 16px; border-bottom: 2px solid #409eff; padding-bottom: 8px;">
+                            <i class="el-icon-view" style="color: #409eff; margin-right: 6px;"></i>
+                            相关片段内容
+                        </h4>
+                        <div style="background: #fafafa; border-left: 4px solid #409eff; padding: 16px; border-radius: 4px; font-family: 'Courier New', monospace; line-height: 1.6; color: #2c3e50; white-space: pre-wrap; max-height: 400px; overflow-y: auto;">
+                            {{ selectedDocumentDetail.content_preview || '暂无片段内容预览' }}
+                        </div>
+                    </div>
+
+                    <!-- 操作提示 -->
+                    <div style="margin-top: 16px; padding: 12px; background: #e1f3d8; border: 1px solid #b3d8a4; border-radius: 6px; font-size: 13px; color: #529b2e;">
+                        <i class="el-icon-info" style="margin-right: 6px;"></i>
+                        此内容片段是AI回答时参考的相关文档部分，相关度评分反映了该片段与您问题的匹配程度。
+                    </div>
+                </div>
+            </div>
+            <template #footer>
+                <span class="dialog-footer">
+                    <el-button @click="closeDocumentDetail">关闭</el-button>
+                    <el-button v-if="selectedDocumentDetail" type="primary" @click="downloadDocument(selectedDocumentDetail)">
+                        <i class="el-icon-download"></i> 下载完整文档
+                    </el-button>
+                </span>
+            </template>
         </el-dialog>
     </div>
     {% endverbatim %}
 
-    <script src="{% static 'js/script.js' %}"></script>
+    <!-- 引入新的 JavaScript 文件 -->
+    <script src="{% static 'static/js/script.js' %}"></script>
 </body>
 
 </html>
