@@ -6,6 +6,7 @@ import uuid
 
 class AgentIn(BaseModel):
     """创建Agent的输入Schema"""
+
     name: str = Field(..., description="代理名称")
     description: Optional[str] = Field("", description="代理描述")
     agent_type: str = Field("react", description="代理类型")
@@ -21,6 +22,7 @@ class AgentIn(BaseModel):
 
 class AgentUpdateIn(BaseModel):
     """更新Agent的输入Schema"""
+
     name: Optional[str] = Field(None, description="代理名称")
     description: Optional[str] = Field(None, description="代理描述")
     system_prompt: Optional[str] = Field(None, description="系统提示词")
@@ -36,6 +38,7 @@ class AgentUpdateIn(BaseModel):
 
 class AgentOut(BaseModel):
     """Agent输出Schema"""
+
     id: str = Field(..., description="代理ID")
     name: str = Field(..., description="代理名称")
     description: str = Field(..., description="代理描述")
@@ -58,12 +61,14 @@ class AgentOut(BaseModel):
 
 class AgentListOut(BaseModel):
     """Agent列表输出Schema"""
+
     agents: List[AgentOut] = Field(..., description="代理列表")
     total: int = Field(..., description="总数")
 
 
 class AgentExecutionIn(BaseModel):
     """Agent执行输入Schema"""
+
     agent_id: str = Field(..., description="代理ID")
     user_input: str = Field(..., description="用户输入")
     conversation_id: Optional[int] = Field(None, description="对话ID")
@@ -72,6 +77,7 @@ class AgentExecutionIn(BaseModel):
 
 class AgentExecutionOut(BaseModel):
     """Agent执行输出Schema"""
+
     id: str = Field(..., description="执行ID")
     agent_id: str = Field(..., description="代理ID")
     user_input: str = Field(..., description="用户输入")
@@ -88,6 +94,7 @@ class AgentExecutionOut(BaseModel):
 
 class AgentToolOut(BaseModel):
     """Agent工具输出Schema"""
+
     id: str = Field(..., description="工具ID")
     name: str = Field(..., description="工具名称")
     description: str = Field(..., description="工具描述")
@@ -101,6 +108,7 @@ class AgentToolOut(BaseModel):
 
 class AgentExecutionStepOut(BaseModel):
     """Agent执行步骤输出Schema"""
+
     step_type: str = Field(..., description="步骤类型")
     step_name: str = Field(..., description="步骤名称")
     input_data: Dict[str, Any] = Field(..., description="输入数据")
@@ -111,6 +119,7 @@ class AgentExecutionStepOut(BaseModel):
 
 class AgentStreamResponse(BaseModel):
     """Agent流式响应Schema"""
+
     type: str = Field(..., description="响应类型: thinking, action, observation, final")
     content: str = Field(..., description="响应内容")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="元数据")

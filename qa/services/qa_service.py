@@ -435,9 +435,7 @@ class QAService:
                     {
                         "document_id": doc.id,
                         "title": doc.title or "无标题文档",
-                        "content_preview": doc.content[:200] + "..."
-                        if len(doc.content) > 200
-                        else doc.content,
+                        "content_preview": doc.content[:200] + "..." if len(doc.content) > 200 else doc.content,
                         "relevance_score": doc.final_score or doc.score or 0.0,
                     }
                 )

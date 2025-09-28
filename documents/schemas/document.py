@@ -22,12 +22,12 @@ class DocumentOut(Schema):
     updated_at: datetime
     task_id: Optional[str] = None
     file_size: Optional[int] = None
-    
+
     @staticmethod
     def resolve_file_size(obj):
         """计算文件大小"""
         try:
-            if obj.file and hasattr(obj.file, 'size'):
+            if obj.file and hasattr(obj.file, "size"):
                 return obj.file.size
             return 0
         except:
@@ -65,7 +65,7 @@ class ReindexDocumentIn(Schema):
 
 class DocumentListOut(Schema):
     """分页文档列表响应Schema"""
-    
+
     documents: List[DocumentOut]
     total: int
     page: int

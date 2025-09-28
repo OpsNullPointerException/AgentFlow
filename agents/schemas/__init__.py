@@ -10,7 +10,7 @@ from .agent import (
 
 __all__ = [
     "AgentIn",
-    "AgentOut", 
+    "AgentOut",
     "AgentUpdateIn",
     "AgentExecutionIn",
     "AgentExecutionOut",

@@ -25,7 +25,7 @@ def retrieve_documents(request, data: RetrievalIn):
         top_k=data.top_k,
         enable_rerank=data.enable_rerank,
         rerank_method=data.rerank_method,
-        rerank_top_k=data.rerank_top_k
+        rerank_top_k=data.rerank_top_k,
     )
 
     # 解包结果
@@ -34,7 +34,6 @@ def retrieve_documents(request, data: RetrievalIn):
 
     # 计算搜索时间
     search_time = time.time() - start_time
-
 
     # 返回结果
     return RetrievalResultOut(

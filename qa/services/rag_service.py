@@ -30,7 +30,7 @@ class RAGService:
         top_k: int = 5,
         enable_rerank: bool = True,
         rerank_method: str = "llm_rerank",
-        rerank_top_k: Optional[int] = None
+        rerank_top_k: Optional[int] = None,
     ) -> RetrievalDocumentsOut:
         """
         检索与查询相关的文档，支持重排序
@@ -50,48 +50,35 @@ class RAGService:
         documents = VectorDBService.search_static(
             query, initial_top_k, embedding_model_version=self.embedding_model_version
         )
-        
-        rerank_info = {
-            "rerank_enabled": enable_rerank,
-            "rerank_method": None,
-            "rerank_time": None
-        }
-        
+
+        rerank_info = {"rerank_enabled": enable_rerank, "rerank_method": None, "rerank_time": None}
+
         # 2. 重排序（如果启用）
         if enable_rerank and documents:
             logger.info(f"对 {len(documents)} 个文档进行重排序，方法: {rerank_method}")
             start_time = time.time()
-            
+
             try:
                 # 执行重排序
                 reranked_documents = self.reranker_service.rerank_documents(
-                    query=query,
-                    documents=documents,
-                    method=rerank_method,
-                    top_k=rerank_top_k or top_k
+                    query=query, documents=documents, method=rerank_method, top_k=rerank_top_k or top_k
                 )
-                
+
                 rerank_time = time.time() - start_time
-                rerank_info.update({
-                    "rerank_method": rerank_method,
-                    "rerank_time": round(rerank_time, 3)
-                })
-                
+                rerank_info.update({"rerank_method": rerank_method, "rerank_time": round(rerank_time, 3)})
+
                 logger.info(f"重排序完成，耗时: {rerank_time:.3f}秒，返回 {len(reranked_documents)} 个文档")
                 documents = reranked_documents
-                
+
             except Exception as e:
                 logger.error(f"重排序失败，使用原始结果: {str(e)}")
                 # 重排序失败时，截取原始结果
-                documents = documents[:rerank_top_k or top_k]
+                documents = documents[: rerank_top_k or top_k]
         else:
             # 未启用重排序时，截取所需数量的文档
             documents = documents[:top_k]
-        
-        return RetrievalDocumentsOut(
-            documents=documents,
-            rerank_info=RerankInfoOut(**rerank_info)
-        )
+
+        return RetrievalDocumentsOut(documents=documents, rerank_info=RerankInfoOut(**rerank_info))
 
     @staticmethod
     def retrieve_relevant_documents_static(
@@ -100,7 +87,7 @@ class RAGService:
         embedding_model_version=None,
         enable_rerank: bool = True,
         rerank_method: str = "llm_rerank",
-        rerank_top_k: Optional[int] = None
+        rerank_top_k: Optional[int] = None,
     ) -> RetrievalDocumentsOut:
         """
         静态方法版本，检索与查询相关的文档，支持重排序
@@ -122,7 +109,7 @@ class RAGService:
             top_k=top_k,
             enable_rerank=enable_rerank,
             rerank_method=rerank_method,
-            rerank_top_k=rerank_top_k
+            rerank_top_k=rerank_top_k,
         )
 
     def format_context_for_llm(self, retrieved_docs: list[DocumentSearchResultOut], query: str) -> str:

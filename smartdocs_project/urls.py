@@ -53,7 +53,12 @@ class JWTAuth(HttpBearer):
 
 
 # 创建API实例
-api = NinjaAPI(title="AgentFlow API", version="1.0.0", description="智能代理平台API - 集成文档管理、问答系统和AI Agent", auth=JWTAuth())
+api = NinjaAPI(
+    title="AgentFlow API",
+    version="1.0.0",
+    description="智能代理平台API - 集成文档管理、问答系统和AI Agent",
+    auth=JWTAuth(),
+)
 
 # 注册需要认证的路由器
 api.add_router("/accounts/", accounts_router)

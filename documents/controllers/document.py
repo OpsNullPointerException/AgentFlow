@@ -8,7 +8,14 @@ from celery.result import AsyncResult
 from documents.models.models import Document, DocumentChunk
 from documents.services.vector_db_service import VectorDBService
 from documents.services.document_processor import DocumentProcessor
-from documents.schemas.document import DocumentIn, DocumentOut, DocumentDetailOut, ReindexDocumentIn, TaskStatusOut, DocumentListOut
+from documents.schemas.document import (
+    DocumentIn,
+    DocumentOut,
+    DocumentDetailOut,
+    ReindexDocumentIn,
+    TaskStatusOut,
+    DocumentListOut,
+)
 from documents.tasks import process_document_task, reprocess_document_task
 
 # 创建路由器
@@ -19,11 +26,11 @@ router = Router(tags=["documents"])
 def list_documents(request, page: int = Query(1, ge=1), page_size: int = Query(10, ge=1, le=100)):
     """获取当前用户的文档列表 - 支持分页"""
     # 获取用户的文档查询集
-    queryset = Document.objects.filter(owner_id=request.auth.id).order_by('-created_at')
-    
+    queryset = Document.objects.filter(owner_id=request.auth.id).order_by("-created_at")
+
     # 创建分页器
     paginator = Paginator(queryset, page_size)
-    
+
     # 获取指定页面
     try:
         page_obj = paginator.page(page)
@@ -31,7 +38,7 @@ def list_documents(request, page: int = Query(1, ge=1), page_size: int = Query(1
         # 如果页面不存在，返回第一页
         page_obj = paginator.page(1)
         page = 1
-    
+
     # 手动转换文档对象，添加file_size字段
     documents_with_size = []
     for doc in page_obj:
@@ -39,20 +46,20 @@ def list_documents(request, page: int = Query(1, ge=1), page_size: int = Query(1
             file_size = doc.file.size if doc.file else 0
         except:
             file_size = 0
-        
+
         doc_dict = {
-            'id': doc.id,
-            'title': doc.title,
-            'description': doc.description,
-            'file_type': doc.file_type,
-            'status': doc.status,
-            'created_at': doc.created_at,
-            'updated_at': doc.updated_at,
-            'task_id': doc.task_id,
-            'file_size': file_size
+            "id": doc.id,
+            "title": doc.title,
+            "description": doc.description,
+            "file_type": doc.file_type,
+            "status": doc.status,
+            "created_at": doc.created_at,
+            "updated_at": doc.updated_at,
+            "task_id": doc.task_id,
+            "file_size": file_size,
         }
         documents_with_size.append(doc_dict)
-    
+
     # 构建响应
     return DocumentListOut(
         documents=documents_with_size,
@@ -61,7 +68,7 @@ def list_documents(request, page: int = Query(1, ge=1), page_size: int = Query(1
         page_size=page_size,
         total_pages=paginator.num_pages,
         has_next=page_obj.has_next(),
-        has_previous=page_obj.has_previous()
+        has_previous=page_obj.has_previous(),
     )
 
 
