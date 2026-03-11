@@ -5,12 +5,14 @@
 from typing import Dict, List, Optional, Type
 
 from ddgs import DDGS
-from langchain.callbacks.manager import CallbackManagerForToolRun
+from langchain.callbacks.manager import CallbackManagerForToolRunn
 from langchain.tools import BaseTool
 from loguru import logger
 from pydantic import BaseModel, Field
+from django.db import connection
 
 from qa.services.rag_service import RAGService
+from agents.services.validators import SQLValidator
 
 
 class DocumentSearchInput(BaseModel):
@@ -253,6 +255,119 @@ class WebSearchTool(BaseTool):
             return f"搜索失败: {str(e)}"
 
 
+# ============== NL2SQL 相关工具 ==============
+
+class SQLQueryInput(BaseModel):
+    """SQL查询工具输入"""
+    sql: str = Field(..., description="要执行的SQL查询语句（仅支持SELECT）")
+
+
+class SQLQueryTool(BaseTool):
+    """SQL查询执行工具"""
+
+    name: str = "sql_query"
+    description: str = "执行SQL查询语句获取数据。仅支持SELECT查询，禁止INSERT/DELETE/UPDATE/DROP操作。"
+    args_schema: Type[BaseModel] = SQLQueryInput
+
+    def _run(
+        self,
+        sql: str,
+        run_manager: Optional[CallbackManagerForToolRun] = None,
+    ) -> str:
+        """执行SQL查询"""
+        try:
+            logger.info(f"Agent执行SQL查询: {sql[:100]}...")
+
+            # 多层SQL安全验证
+            is_safe, error_msg = SQLValidator.validate(sql)
+            if not is_safe:
+                logger.warning(f"SQL验证失败: {error_msg}")
+                return error_msg
+
+            # 执行查询
+            with connection.cursor() as cursor:
+                cursor.execute(sql)
+                columns = [col[0] for col in cursor.description] if cursor.description else []
+                rows = cursor.fetchall()
+
+                if not rows:
+                    return "✓ 查询完成，无返回结果"
+
+                # 检查结果大小
+                if len(rows) > 1000:
+                    logger.warning(f"查询返回大量数据: {len(rows)}行")
+
+                # 格式化结果（限制返回前100行）
+                result_lines = []
+                if columns:
+                    result_lines.append("\t".join(str(col) for col in columns))
+
+                for i, row in enumerate(rows[:100]):
+                    result_lines.append("\t".join(str(val) if val is not None else "NULL" for val in row))
+
+                if len(rows) > 100:
+                    result_lines.append(f"... (共{len(rows)}行，已显示前100行)")
+
+                return "\n".join(result_lines)
+
+        except Exception as e:
+            logger.error(f"SQL查询执行失败: {e}")
+            return f"❌ SQL执行失败: {str(e)}"
+
+
+class SchemaQueryInput(BaseModel):
+    """Schema查询工具输入"""
+    query: str = Field(..., description="查询类型: 'tables' 获取所有表, 或输入表名获取字段信息")
+
+
+class SchemaQueryTool(BaseTool):
+    """数据库Schema查询工具"""
+
+    name: str = "schema_query"
+    description: str = "查询数据库的表结构和字段信息。输入'tables'获取所有表名，输入表名获取字段清单。"
+    args_schema: Type[BaseModel] = SchemaQueryInput
+
+    def _run(
+        self,
+        query: str,
+        run_manager: Optional[CallbackManagerForToolRun] = None,
+    ) -> str:
+        """查询数据库Schema"""
+        try:
+            logger.info(f"Agent查询Schema: {query}")
+
+            with connection.cursor() as cursor:
+                if query.lower() == 'tables':
+                    # 获取所有表
+                    cursor.execute("""
+                        SELECT table_name
+                        FROM information_schema.tables
+                        WHERE table_schema = DATABASE()
+                    """)
+                    tables = [row[0] for row in cursor.fetchall()]
+                    return "可用的表:\n" + "\n".join(f"- {t}" for t in tables)
+                else:
+                    # 获取指定表的字段信息
+                    cursor.execute(f"""
+                        SELECT column_name, column_type, is_nullable
+                        FROM information_schema.columns
+                        WHERE table_schema = DATABASE() AND table_name = %s
+                    """, [query])
+
+                    columns = cursor.fetchall()
+                    if not columns:
+                        return f"表'{query}'不存在"
+
+                    result = f"表 '{query}' 的字段信息:\n"
+                    for col_name, col_type, nullable in columns:
+                        result += f"- {col_name}: {col_type} ({'NULL' if nullable == 'YES' else 'NOT NULL'})\n"
+                    return result
+
+        except Exception as e:
+            logger.error(f"Schema查询失败: {e}")
+            return f"❌ Schema查询失败: {str(e)}"
+
+
 class ToolRegistry:
     """工具注册表"""
 
@@ -261,6 +376,8 @@ class ToolRegistry:
         "calculator": CalculatorTool,
         "python_repl": PythonREPLTool,
         "web_search": WebSearchTool,
+        "sql_query": SQLQueryTool,
+        "schema_query": SchemaQueryTool,
     }
 
     @classmethod

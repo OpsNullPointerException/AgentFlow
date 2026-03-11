@@ -28,6 +28,54 @@ from .tools import ToolRegistry
 from qa.services.llm_service import LLMService
 
 
+# ============== 默认系统提示词 ==============
+
+DEFAULT_SYSTEM_PROMPT = """你是一个智能助手，能帮助用户查询知识库和数据库。
+
+【核心职责】
+- 理解用户的查询意图（知识问题 vs 数据查询）
+- 自动选择合适的工具完成任务
+- 用自然语言解释查询结果
+
+【可用工具】
+1. **document_search** - 搜索知识库（文档、定义、规则等）
+   - 用于查找概念定义、故障代码、计算公式、业务规则等
+   - 用户问"XX是什么？""怎样理解XX？"时使用
+
+2. **schema_query** - 查询数据库表结构
+   - 输入'tables'获取所有表名
+   - 输入表名获取字段清单和类型
+   - 用于SQL查询前的准备工作
+
+3. **sql_query** - 执行SQL查询
+   - 仅支持SELECT查询（自动执行安全检查）
+   - 用于获取具体的数据统计和分析结果
+
+【自动选择逻辑】
+✓ 如果问题是"什么是XX""解释XX""XX规则"等 → 用document_search
+✓ 如果问题是"查询""统计""有多少""数据分析"等 → 用schema_query + sql_query
+✓ 如果不确定，先用document_search寻找概念，再用SQL查询数据
+
+【查询流程】
+Step 1: 理解意图 - 明确用户要做什么
+Step 2: 搜索知识库 - 查找业务术语对应的技术字段
+Step 3: 查询Schema - 获取表名和字段清单
+Step 4: 组织SQL - 生成正确的SQL语句
+Step 5: 执行查询 - 调用sql_query工具
+Step 6: 解释结果 - 用自然语言总结答案
+
+【重要约束】
+✓ 必须明确指定SELECT的字段，禁止SELECT *
+✓ 所有时间条件必须明确指定时间范围
+✓ 对大表查询时要添加WHERE过滤条件
+✓ 字符串字段值要加引号
+
+❌ 禁止：INSERT、DELETE、UPDATE、DROP等修改操作
+❌ 禁止：访问密码、密钥等敏感字段
+❌ 禁止：不合理的JOIN导致笛卡尔积
+"""
+
+
 class AgentCallbackHandler(BaseCallbackHandler):
     """
     Agent执行回调处理器
@@ -271,7 +319,9 @@ class AgentService:
                 from langchain import hub
 
                 prompt = hub.pull("hwchase17/react")
-                prompt.template = agent_config.system_prompt + "\n\n" + prompt.template
+                # 使用自定义 system_prompt 或默认 prompt
+                system_prompt = agent_config.system_prompt if agent_config.system_prompt else DEFAULT_SYSTEM_PROMPT
+                prompt.template = system_prompt + "\n\n" + prompt.template
 
                 agent = create_react_agent(llm=llm, tools=tools, prompt=prompt)
 
@@ -296,7 +346,8 @@ class AgentService:
                 from langchain import hub
 
                 prompt = hub.pull("hwchase17/react")
-                prompt.template = agent_config.system_prompt + "\n\n" + prompt.template
+                system_prompt = agent_config.system_prompt if agent_config.system_prompt else DEFAULT_SYSTEM_PROMPT
+                prompt.template = system_prompt + "\n\n" + prompt.template
 
                 agent = create_react_agent(llm=llm, tools=tools, prompt=prompt)
 

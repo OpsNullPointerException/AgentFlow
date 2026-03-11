@@ -11,7 +11,6 @@ class Agent(models.Model):
         ("openai_functions", "OpenAI函数代理"),
         ("structured_chat", "结构化聊天代理"),
         ("conversational", "对话代理"),
-        ("zero_shot", "零样本代理"),
     )
 
     STATUS_CHOICES = (
