@@ -13,6 +13,7 @@ from django.db import connection
 
 from qa.services.rag_service import RAGService
 from agents.services.validators import SQLValidator
+from agents.services.tool_retry import ToolRetryWrapper
 
 
 class DocumentSearchInput(BaseModel):
@@ -382,11 +383,34 @@ class ToolRegistry:
 
     @classmethod
     def get_tool(cls, tool_name: str, **kwargs) -> Optional[BaseTool]:
-        """获取工具实例"""
+        """获取工具实例，关键工具自动应用重试机制"""
         tool_class = cls._tools.get(tool_name)
         if tool_class:
             try:
-                return tool_class(**kwargs)
+                tool = tool_class(**kwargs)
+
+                # 对关键工具应用重试机制
+                # 这些工具容易遇到临时故障（网络超时、连接失败等）
+                if tool_name in ["document_search", "sql_query", "schema_query"]:
+                    # 获取重试配置（可从环境或全局配置读取）
+                    max_retries = kwargs.get("max_retries", 3)
+                    backoff_factor = kwargs.get("backoff_factor", 2.0)
+                    base_delay = kwargs.get("base_delay", 0.5)
+
+                    # 包装为重试工具
+                    wrapped_tool = ToolRetryWrapper(
+                        tool._run,  # 包装工具的_run方法
+                        max_retries=max_retries,
+                        backoff_factor=backoff_factor,
+                        base_delay=base_delay,
+                        retryable_exceptions=(ConnectionError, TimeoutError, Exception),
+                    )
+
+                    # 替换_run方法
+                    tool._run = wrapped_tool.execute
+                    logger.info(f"工具 {tool_name} 已应用重试机制 (max_retries={max_retries})")
+
+                return tool
             except Exception as e:
                 logger.error(f"创建工具实例失败 {tool_name}: {e}")
                 return None

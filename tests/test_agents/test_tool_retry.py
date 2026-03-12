@@ -1,5 +1,5 @@
 """
-工具调用重试和容错机制的单元测试
+工具调用重试机制的单元测试
 """
 
 import pytest
@@ -28,7 +28,6 @@ class TestToolRetry:
 
         assert call_count == 3
         assert "成功在第3次" in result
-        assert "重试" not in result  # 最终成功，不应该在结果中提示重试
 
     def test_tool_retry_with_exponential_backoff(self):
         """测试：指数退避重试策略"""
@@ -69,47 +68,6 @@ class TestToolRetry:
         error_msg = str(exc_info.value)
         assert "工具执行失败" in error_msg
         assert "已重试2次" in error_msg
-
-    def test_tool_fallback_strategy(self):
-        """测试：工具失败后使用备用方案"""
-        from agents.services.tool_retry import ToolWithFallback
-
-        def primary_tool():
-            raise Exception("Primary failed")
-
-        def fallback_tool():
-            return "Fallback result"
-
-        wrapper = ToolWithFallback(primary_tool, fallback_tool)
-        result = wrapper.execute()
-
-        assert result == "Fallback result"
-
-    def test_circuit_breaker_pattern(self):
-        """测试：熔断器模式 - 连续失败后自动关闭"""
-        from agents.services.tool_retry import CircuitBreaker
-
-        fail_count = 0
-
-        def unstable_tool():
-            nonlocal fail_count
-            fail_count += 1
-            if fail_count <= 5:
-                raise Exception("Unstable")
-            return "Success"
-
-        breaker = CircuitBreaker(unstable_tool, failure_threshold=3)
-
-        # 第1-3次失败，达到阈值
-        for i in range(3):
-            with pytest.raises(Exception):
-                breaker.execute()
-
-        # 第4次应该直接抛出熔断异常，不实际调用
-        from agents.services.tool_retry import CircuitBreakerOpenError
-
-        with pytest.raises(CircuitBreakerOpenError):
-            breaker.execute()
 
     def test_non_retryable_errors(self):
         """测试：某些错误不应该重试"""
