@@ -12,10 +12,8 @@ from langchain.agents.agent import AgentOutputParser
 from langchain.agents.react.base import ReActDocstoreAgent
 from langchain.agents.structured_chat.base import StructuredChatAgent
 from langchain.agents.conversational.base import ConversationalAgent
-from langchain.memory import ConversationBufferWindowMemory, ConversationSummaryBufferMemory
 from langchain.schema import AgentAction, AgentFinish
 from langchain.callbacks.base import BaseCallbackHandler
-from langchain.callbacks.manager import CallbackManager
 from langchain_community.llms import Tongyi
 from django.conf import settings
 from django.utils import timezone
@@ -28,6 +26,7 @@ from .tools import ToolRegistry
 from qa.services.llm_service import LLMService
 from .execution_trace import ExecutionTrace
 from .observation_masking import ObservationMasker
+from .smart_memory import SmartMemoryManager
 
 
 # ============== 默认系统提示词 ==============
@@ -214,27 +213,16 @@ class AgentService:
             raise
 
     def _create_memory(self, agent_config: Agent, conversation_id: Optional[int] = None):
-        """创建记忆组件"""
+        """创建记忆组件 - 统一使用SmartMemoryManager"""
         try:
-            memory_type = agent_config.memory_type
             memory_config = agent_config.memory_config or {}
 
-            # 创建基础记忆组件
-            if memory_type == "buffer_window":
-                memory = ConversationBufferWindowMemory(
-                    k=memory_config.get("window_size", 5), memory_key="chat_history", return_messages=True
-                )
-            elif memory_type == "summary_buffer":
-                llm = self._create_llm(agent_config)
-                memory = ConversationSummaryBufferMemory(
-                    llm=llm,
-                    max_token_limit=memory_config.get("max_token_limit", 2000),
-                    memory_key="chat_history",
-                    return_messages=True,
-                )
-            else:
-                # 默认使用buffer_window
-                memory = ConversationBufferWindowMemory(k=5, memory_key="chat_history", return_messages=True)
+            # 统一使用SmartMemoryManager - 支持通过配置调整行为
+            memory = SmartMemoryManager(
+                max_messages=memory_config.get("max_messages", 20),
+                importance_threshold=memory_config.get("importance_threshold", 0.3),
+                max_tokens=memory_config.get("max_tokens", 2000),
+            )
 
             # 从数据库加载历史记忆
             if conversation_id:
@@ -246,7 +234,7 @@ class AgentService:
         except Exception as e:
             logger.error(f"创建记忆组件失败: {e}")
             # 返回默认记忆
-            return ConversationBufferWindowMemory(k=5, memory_key="chat_history", return_messages=True)
+            return SmartMemoryManager()
 
     def _load_memory_from_db(self, agent_id: str, conversation_id: int, memory):
         """从数据库加载记忆到LangChain记忆组件"""

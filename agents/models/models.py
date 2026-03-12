@@ -35,7 +35,7 @@ class Agent(models.Model):
     tool_config = models.JSONField("工具配置", default=dict, blank=True)
 
     # 记忆配置
-    memory_type = models.CharField("记忆类型", max_length=50, default="buffer_window")
+    memory_type = models.CharField("记忆类型", max_length=50, default="smart")
     memory_config = models.JSONField("记忆配置", default=dict, blank=True)
 
     # 状态和元数据
