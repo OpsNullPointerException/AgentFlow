@@ -26,7 +26,7 @@ from ..models import Agent, AgentExecution, AgentMemory
 from ..schemas.agent import AgentExecutionOut, AgentStreamResponse
 from .tools import ToolRegistry
 from qa.services.llm_service import LLMService
-from .execution_trace import ExecutionTrace, ExecutionStep, StepType
+from .execution_trace import ExecutionTrace
 from .observation_masking import ObservationMasker
 
 
@@ -78,12 +78,12 @@ Step 6: 解释结果 - 用自然语言总结答案
 """
 
 
-class AgentCallbackHandler(BaseCallbackHandler):
+class AgentCallbackHandler(ExecutionTrace, BaseCallbackHandler):
     """
-    Agent执行回调处理器 - 基于LangChain的CallbackHandler
+    Agent执行回调处理器 - 结合ExecutionTrace和LangChain回调
 
-    集成ExecutionTrace，实现完整的执行追踪机制。继承自BaseCallbackHandler，
-    使用LangChain规定的特定函数名实现回调。
+    直接继承ExecutionTrace，既提供执行追踪功能，又实现LangChain的回调接口。
+    这样消除了ExecutionTrace和Handler的冗余，统一了事件记录。
 
     支持的回调：
     - on_agent_action(): Agent选择工具时触发
@@ -94,16 +94,18 @@ class AgentCallbackHandler(BaseCallbackHandler):
     """
 
     def __init__(self, execution_id: str, agent_id: str = None, user_input: str = None):
-        self.execution_id = execution_id
-        self.execution_trace = ExecutionTrace(execution_id, agent_id, user_input)
+        # 初始化ExecutionTrace（父类）
+        ExecutionTrace.__init__(self, execution_id, agent_id, user_input)
+        # 初始化BaseCallbackHandler
+        BaseCallbackHandler.__init__(self)
+        # 追踪状态
         self.current_tool = None
         self.current_tool_start_time = None
 
     def on_agent_action(self, action: AgentAction, **kwargs) -> None:
         """Agent选择工具时的回调"""
         logger.info(f"Agent选择工具: {action.tool}")
-        # 记录工具选择到ExecutionTrace
-        self.execution_trace.add_tool_selection_step(
+        self.add_tool_selection_step(
             candidates=list(kwargs.get("available_tools", [action.tool])),
             selected=action.tool,
             reasoning=str(action.tool_input),
@@ -114,21 +116,18 @@ class AgentCallbackHandler(BaseCallbackHandler):
     def on_agent_finish(self, finish: AgentFinish, **kwargs) -> None:
         """Agent完成推理时的回调"""
         logger.info(f"Agent完成推理")
-        # 记录最终答案
         output = finish.return_values.get("output", "")
-        self.execution_trace.add_final_answer(
+        self.add_final_answer(
             answer=output,
             metadata={"return_values": finish.return_values}
         )
-        # 标记追踪完成
-        self.execution_trace.finish()
+        self.finish()
 
     def on_tool_start(self, serialized: dict, input_str: str, **kwargs) -> None:
         """工具开始执行时的回调"""
         logger.info(f"工具开始执行: {self.current_tool}")
         self.current_tool_start_time = time.time()
-        # 记录工具执行开始
-        self.execution_trace.add_tool_execution_start(
+        self.add_tool_execution_start(
             tool_name=self.current_tool or "unknown",
             tool_input={"input": input_str},
             metadata={"serialized": serialized}
@@ -155,7 +154,7 @@ class AgentCallbackHandler(BaseCallbackHandler):
             )
 
         # 记录工具执行结束（使用压缩后的输出）
-        self.execution_trace.add_tool_execution_end(
+        self.add_tool_execution_end(
             tool_name=self.current_tool or "unknown",
             tool_output=masked_output,
             duration=duration,
@@ -165,24 +164,24 @@ class AgentCallbackHandler(BaseCallbackHandler):
     def on_tool_error(self, error: Exception, **kwargs) -> None:
         """工具执行出错时的回调"""
         logger.error(f"工具执行出错: {str(error)}")
-        # 记录工具错误
-        self.execution_trace.add_tool_error(
+        self.add_tool_error(
             tool_name=self.current_tool or "unknown",
             error=str(error),
             metadata={"error_type": type(error).__name__}
         )
 
-    def get_execution_trace(self) -> ExecutionTrace:
-        """获取完整的执行追踪对象"""
-        return self.execution_trace
+    # 导出方法保持兼容性
+    def get_execution_trace(self) -> "AgentCallbackHandler":
+        """返回自身（现在既是ExecutionTrace也是Handler）"""
+        return self
 
     def get_trace_summary(self) -> dict:
         """获取执行追踪摘要"""
-        return self.execution_trace.get_summary()
+        return self.get_summary()
 
     def get_trace_detailed(self) -> dict:
         """获取执行追踪详情"""
-        return self.execution_trace.export(format="detailed")
+        return self.export(format="detailed")
 
 
 class AgentService:
@@ -253,7 +252,6 @@ class AgentService:
         """从数据库加载记忆到LangChain记忆组件"""
         try:
             from ..models import AgentMemory
-            from langchain.schema import HumanMessage, AIMessage
 
             # 查询该对话的记忆记录
             memory_records = AgentMemory.objects.filter(
