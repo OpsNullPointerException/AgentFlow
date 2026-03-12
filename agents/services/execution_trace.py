@@ -54,14 +54,14 @@ class ExecutionStep:
 class ExecutionTrace:
     """完整的执行追踪"""
 
-    def __init__(self, execution_id: str, agent_id: str, user_input: str):
+    def __init__(self, execution_id: str, agent_id: str = None, user_input: str = None):
         """
         初始化执行追踪
 
         Args:
             execution_id: 执行ID
-            agent_id: Agent ID
-            user_input: 用户输入
+            agent_id: Agent ID（可选）
+            user_input: 用户输入（可选）
         """
         self.execution_id = execution_id
         self.agent_id = agent_id

@@ -26,6 +26,7 @@ from ..models import Agent, AgentExecution, AgentMemory
 from ..schemas.agent import AgentExecutionOut, AgentStreamResponse
 from .tools import ToolRegistry
 from qa.services.llm_service import LLMService
+from .execution_trace import ExecutionTrace, ExecutionStep, StepType
 
 
 # ============== 默认系统提示词 ==============
@@ -78,92 +79,93 @@ Step 6: 解释结果 - 用自然语言总结答案
 
 class AgentCallbackHandler(BaseCallbackHandler):
     """
-    Agent执行回调处理器
+    Agent执行回调处理器 - 基于LangChain的CallbackHandler
 
-    继承自 BaseCallbackHandler，必须使用LangChain规定的特定函数名：
+    集成ExecutionTrace，实现完整的执行追踪机制。继承自BaseCallbackHandler，
+    使用LangChain规定的特定函数名实现回调。
 
-    Agent相关回调：
-    - on_agent_action(): Agent决定执行某个工具时触发
-    - on_agent_finish(): Agent完成整个推理过程时触发
-
-    工具相关回调：
+    支持的回调：
+    - on_agent_action(): Agent选择工具时触发
+    - on_agent_finish(): Agent完成推理时触发
     - on_tool_start(): 工具开始执行时触发
-    - on_tool_end(): 工具执行完成时触发
+    - on_tool_end(): 工具完成执行时触发
     - on_tool_error(): 工具执行出错时触发
-
-    LLM相关回调：
-    - on_llm_start(): LLM开始生成时触发
-    - on_llm_end(): LLM生成完成时触发
-    - on_llm_error(): LLM生成出错时触发
-
-    Chain相关回调：
-    - on_chain_start(): Chain开始执行时触发
-    - on_chain_end(): Chain执行完成时触发
-    - on_chain_error(): Chain执行出错时触发
     """
 
-    def __init__(self, execution_id: str):
+    def __init__(self, execution_id: str, agent_id: str = None, user_input: str = None):
         self.execution_id = execution_id
-        self.steps = []
-        self.current_step = None
+        self.execution_trace = ExecutionTrace(execution_id, agent_id, user_input)
+        self.current_tool = None
+        self.current_tool_start_time = None
 
     def on_agent_action(self, action: AgentAction, **kwargs) -> None:
-        """
-        Agent执行动作时的回调 - 函数名必须是 on_agent_action
-        当Agent决定使用某个工具时会触发此回调
-        """
-        logger.info(f"Agent动作: {action.tool} - {action.tool_input}")
-        step = {
-            "step_type": "action",
-            "step_name": action.tool,
-            "input_data": {"tool_input": action.tool_input},
-            "timestamp": datetime.now().isoformat(),
-        }
-        self.steps.append(step)
-        self.current_step = step
+        """Agent选择工具时的回调"""
+        logger.info(f"Agent选择工具: {action.tool}")
+        # 记录工具选择到ExecutionTrace
+        self.execution_trace.add_tool_selection_step(
+            candidates=list(kwargs.get("available_tools", [action.tool])),
+            selected=action.tool,
+            reasoning=str(action.tool_input),
+            metadata={"agent_action": True}
+        )
+        self.current_tool = action.tool
 
     def on_agent_finish(self, finish: AgentFinish, **kwargs) -> None:
-        """
-        Agent完成时的回调 - 函数名必须是 on_agent_finish
-        当Agent完成整个推理过程并给出最终答案时触发
-        """
-        logger.info(f"Agent完成: {finish.return_values}")
-        step = {
-            "step_type": "finish",
-            "step_name": "final_answer",
-            "output_data": finish.return_values,
-            "timestamp": datetime.now().isoformat(),
-        }
-        self.steps.append(step)
+        """Agent完成推理时的回调"""
+        logger.info(f"Agent完成推理")
+        # 记录最终答案
+        output = finish.return_values.get("output", "")
+        self.execution_trace.add_final_answer(
+            answer=output,
+            metadata={"return_values": finish.return_values}
+        )
+        # 标记追踪完成
+        self.execution_trace.finish()
 
-    def on_tool_start(self, serialized: Dict[str, Any], input_str: str, **kwargs) -> None:
-        """
-        工具开始执行时的回调 - 函数名必须是 on_tool_start
-        当Agent调用工具开始执行时触发
-        """
-        if self.current_step:
-            self.current_step["tool_start_time"] = time.time()
+    def on_tool_start(self, serialized: dict, input_str: str, **kwargs) -> None:
+        """工具开始执行时的回调"""
+        logger.info(f"工具开始执行: {self.current_tool}")
+        self.current_tool_start_time = time.time()
+        # 记录工具执行开始
+        self.execution_trace.add_tool_execution_start(
+            tool_name=self.current_tool or "unknown",
+            tool_input={"input": input_str},
+            metadata={"serialized": serialized}
+        )
 
     def on_tool_end(self, output: str, **kwargs) -> None:
-        """
-        工具执行结束时的回调 - 函数名必须是 on_tool_end
-        当工具执行完成并返回结果时触发
-        """
-        if self.current_step:
-            self.current_step["output_data"] = {"tool_output": output}
-            if "tool_start_time" in self.current_step:
-                duration = time.time() - self.current_step["tool_start_time"]
-                self.current_step["duration"] = duration
+        """工具完成执行时的回调"""
+        logger.info(f"工具完成执行: {self.current_tool}")
+        duration = time.time() - self.current_tool_start_time if self.current_tool_start_time else 0
+        # 记录工具执行结束
+        self.execution_trace.add_tool_execution_end(
+            tool_name=self.current_tool or "unknown",
+            tool_output=output,
+            duration=duration,
+            metadata={"output_length": len(output)}
+        )
 
     def on_tool_error(self, error: Exception, **kwargs) -> None:
-        """
-        工具执行出错时的回调 - 函数名必须是 on_tool_error
-        当工具执行过程中发生错误时触发
-        """
-        logger.error(f"工具执行出错: {error}")
-        if self.current_step:
-            self.current_step["error"] = str(error)
-            self.current_step["status"] = "error"
+        """工具执行出错时的回调"""
+        logger.error(f"工具执行出错: {str(error)}")
+        # 记录工具错误
+        self.execution_trace.add_tool_error(
+            tool_name=self.current_tool or "unknown",
+            error=str(error),
+            metadata={"error_type": type(error).__name__}
+        )
+
+    def get_execution_trace(self) -> ExecutionTrace:
+        """获取完整的执行追踪对象"""
+        return self.execution_trace
+
+    def get_trace_summary(self) -> dict:
+        """获取执行追踪摘要"""
+        return self.execution_trace.get_summary()
+
+    def get_trace_detailed(self) -> dict:
+        """获取执行追踪详情"""
+        return self.execution_trace.export(format="detailed")
 
 
 class AgentService:
@@ -391,8 +393,8 @@ class AgentService:
             )
             execution_id = str(execution.id)
 
-            # 创建回调处理器
-            callback_handler = AgentCallbackHandler(execution_id)
+            # 创建回调处理器 - 传入agent_id和user_input用于ExecutionTrace
+            callback_handler = AgentCallbackHandler(execution_id, agent_id, user_input)
 
             # 创建Agent执行器
             agent_executor = self._create_agent_executor(agent_config, conversation_id, callback_handler)
@@ -407,10 +409,14 @@ class AgentService:
 
             # 更新执行记录
             execution.agent_output = result.get("output", "")
-            execution.execution_steps = callback_handler.steps
-            execution.tools_used = list(
-                {step.get("step_name", "") for step in callback_handler.steps if step.get("step_type") == "action"}
-            )
+            # 使用ExecutionTrace的详细追踪信息
+            execution_trace = callback_handler.get_execution_trace()
+            execution.execution_steps = execution_trace.get_detailed_trace()
+
+            # 提取工具使用列表
+            tool_sequence = execution_trace.get_tool_sequence()
+            execution.tools_used = list({step["tool"] for step in tool_sequence if step["tool"]})
+
             execution.status = "completed"
             execution.execution_time = execution_time
             execution.completed_at = datetime.now()
@@ -421,16 +427,10 @@ class AgentService:
 
                 json.dumps(execution.execution_steps)  # 测试序列化
             except (TypeError, ValueError) as e:
-                logger.warning(f"执行步骤无法序列化，将使用简化版本: {e}")
-                # 创建简化的执行步骤
-                execution.execution_steps = [
-                    {
-                        "step_type": "summary",
-                        "step_name": "execution_summary",
-                        "content": f"智能体执行了{len(callback_handler.steps)}个步骤",
-                        "timestamp": datetime.now().isoformat(),
-                    }
-                ]
+                logger.warning(f"执行步骤无法序列化，使用摘要版本: {e}")
+                # 使用执行追踪的摘要
+                summary = execution_trace.get_summary()
+                execution.execution_steps = [summary]
 
             execution.save()
 
