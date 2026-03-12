@@ -27,6 +27,7 @@ from ..schemas.agent import AgentExecutionOut, AgentStreamResponse
 from .tools import ToolRegistry
 from qa.services.llm_service import LLMService
 from .execution_trace import ExecutionTrace, ExecutionStep, StepType
+from .observation_masking import ObservationMasker
 
 
 # ============== 默认系统提示词 ==============
@@ -137,12 +138,28 @@ class AgentCallbackHandler(BaseCallbackHandler):
         """工具完成执行时的回调"""
         logger.info(f"工具完成执行: {self.current_tool}")
         duration = time.time() - self.current_tool_start_time if self.current_tool_start_time else 0
-        # 记录工具执行结束
+
+        # 应用观察掩码压缩输出
+        masked_output = ObservationMasker.mask_observation(
+            self.current_tool or "unknown",
+            output,
+            max_length=500
+        )
+
+        # 记录压缩效果
+        if len(masked_output) < len(output):
+            ObservationMasker.estimate_token_reduction(
+                self.current_tool or "unknown",
+                output,
+                masked_output
+            )
+
+        # 记录工具执行结束（使用压缩后的输出）
         self.execution_trace.add_tool_execution_end(
             tool_name=self.current_tool or "unknown",
-            tool_output=output,
+            tool_output=masked_output,
             duration=duration,
-            metadata={"output_length": len(output)}
+            metadata={"output_length": len(masked_output), "original_length": len(output)}
         )
 
     def on_tool_error(self, error: Exception, **kwargs) -> None:
