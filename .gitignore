@@ -17,5 +17,9 @@ media/
 .vscode/
 .idea/
 docs/
-tests/
+# 只忽略测试缓存和旧的测试文件，保留 tests/test_agents/
+tests/.pytest_cache/
+tests/conftest.py
+tests/test_*.py
+!tests/test_agents/
 validation_datasets/
