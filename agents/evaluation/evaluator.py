@@ -17,6 +17,7 @@ from agents.evaluation.rubrics import (
 )
 from agents.evaluation.metrics import MetricsCalculator
 from agents.evaluation.judge import LLMJudgeSync
+from agents.evaluation.rule_based_evaluator import RuleBasedEvaluator
 
 
 @dataclass
@@ -72,6 +73,7 @@ class AgentEvaluator:
         self,
         execution,
         ground_truth: Optional[Dict[str, Any]] = None,
+        test_case: Optional[Dict[str, Any]] = None,
         use_llm: bool = False,
     ) -> EvaluationReport:
         """
@@ -80,6 +82,7 @@ class AgentEvaluator:
         Args:
             execution: Agent执行记录对象
             ground_truth: 预期结果（可选）
+            test_case: 测试用例（可选，用于RuleBasedEvaluator）
             use_llm: 是否使用LLM进行评测
 
         Returns:
@@ -88,7 +91,7 @@ class AgentEvaluator:
         try:
             # 1. 执行效果评测
             execution_scores = self._evaluate_execution_quality(
-                execution, ground_truth, use_llm=use_llm
+                execution, ground_truth, test_case=test_case, use_llm=use_llm
             )
 
             # 2. 性能评测
@@ -153,12 +156,62 @@ class AgentEvaluator:
         self,
         execution,
         ground_truth: Optional[Dict[str, Any]] = None,
+        test_case: Optional[Dict[str, Any]] = None,
         use_llm: bool = False,
     ) -> Dict[str, float]:
-        """评测执行质量"""
+        """
+        评测执行质量
+
+        优先级：
+        1. 如果提供了test_case → 使用RuleBasedEvaluator（最可靠）
+        2. 否则如果use_llm=True → 尝试使用LLM（如果可用）
+        3. 最后降级到简单规则
+
+        Args:
+            execution: Agent执行对象
+            ground_truth: 预期结果
+            test_case: 测试用例（包含expected字段）
+            use_llm: 是否使用LLM评测
+
+        Returns:
+            Dict[str, float]: 5个维度的评分（accuracy, completeness, clarity, tool_appropriateness, safety）
+        """
         scores = {}
 
-        # 如果有judge且use_llm=True，使用LLM评测
+        # 优先使用规则库评测（如果有test_case）
+        if test_case:
+            try:
+                rule_evaluator = RuleBasedEvaluator()
+                result = rule_evaluator.evaluate(execution, test_case)
+
+                # 提取输出长度用于clarity计算
+                output = ""
+                if hasattr(execution, "agent_output"):
+                    output = str(execution.agent_output)
+                elif hasattr(execution, "output"):
+                    output = str(execution.output)
+                output_length = len(output)
+
+                # 将规则库评分转换为EXECUTION_RUBRIC的格式
+                scores = {
+                    "accuracy": result["score"],  # 使用综合得分作为准确性
+                    "completeness": result["details"]["keyword_coverage"],  # 关键词覆盖率作为完整性
+                    "clarity": 0.8 if output_length > 30 else 0.5,  # 简单启发式
+                    "tool_appropriateness": result["details"]["tools_ok"],  # 工具使用得分
+                    "safety": 1.0 if result["details"]["no_bad_words"] else 0.7,  # 禁词检查
+                }
+
+                logger.info(
+                    f"使用RuleBasedEvaluator评测：accuracy={scores['accuracy']:.2f}, "
+                    f"completeness={scores['completeness']:.2f}, "
+                    f"tool_appropriateness={scores['tool_appropriateness']:.2f}"
+                )
+
+                return scores
+            except Exception as e:
+                logger.warning(f"RuleBasedEvaluator评测失败: {e}，降级到LLM或简单规则")
+
+        # 否则尝试LLM评测
         if use_llm and self.judge:
             for dimension in EXECUTION_RUBRIC.keys():
                 try:
@@ -175,7 +228,7 @@ class AgentEvaluator:
                     logger.warning(f"LLM评测{dimension}失败，使用默认值: {e}")
                     scores[dimension] = 0.75
         else:
-            # 使用规则-based评测（简化版）
+            # 降级到简单规则
             output_len = len(execution.agent_output if hasattr(execution, "agent_output") else "")
             scores["accuracy"] = min(1.0, 0.5 + output_len / 1000 * 0.5)  # 简化规则
             scores["completeness"] = 0.8 if output_len > 50 else 0.5
