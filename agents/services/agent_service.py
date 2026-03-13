@@ -236,7 +236,7 @@ class AgentService:
             # 返回默认记忆
             return SmartMemoryManager()
 
-    def _load_memory_from_db(self, agent_id: str, conversation_id: int, memory):
+    def _load_memory_from_db(self, agent_id: str, conversation_id: int, memory: SmartMemoryManager):
         """从数据库加载记忆到LangChain记忆组件"""
         try:
             from ..models import AgentMemory
@@ -260,7 +260,7 @@ class AgentService:
         except Exception as e:
             logger.error(f"从数据库加载记忆失败: {e}")
 
-    def _save_memory_to_db(self, agent_id: str, conversation_id: int, user_id: int, memory):
+    def _save_memory_to_db(self, agent_id: str, conversation_id: int, user_id: int, memory: SmartMemoryManager):
         """保存记忆到数据库"""
         try:
             from ..models import AgentMemory
@@ -316,7 +316,6 @@ class AgentService:
             callbacks = []
             if callback_handler:
                 callbacks.append(callback_handler)
-            callback_manager = CallbackManager(callbacks) if callbacks else None
 
             # 根据代理类型创建不同的Agent
             if agent_config.agent_type == "react":
@@ -364,7 +363,7 @@ class AgentService:
                 verbose=False,  # 关闭详细输出提高速度
                 max_iterations=10,  # 增加最大迭代次数，允许更复杂的推理
                 max_execution_time=120,  # 2分钟超时，给智能体更多时间
-                callback_manager=callback_manager,
+                callbacks=callbacks,  # 直接传递callbacks列表
                 early_stopping_method="force",  # 使用支持的停止方法
                 handle_parsing_errors=True,
             )
