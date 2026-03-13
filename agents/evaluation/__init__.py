@@ -12,6 +12,7 @@ from .rubrics import (
 from .metrics import MetricsCalculator
 from .judge import LLMJudge, LLMJudgeSync
 from .evaluator import AgentEvaluator, EvaluationReport
+from .rule_based_evaluator import RuleBasedEvaluator
 
 __all__ = [
     # 标准库
@@ -23,6 +24,7 @@ __all__ = [
     "LLMJudge",
     "LLMJudgeSync",
     "AgentEvaluator",
+    "RuleBasedEvaluator",
     # 数据类
     "EvaluationReport",
 ]
