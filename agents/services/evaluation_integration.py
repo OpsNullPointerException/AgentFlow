@@ -1,108 +1,65 @@
 """
-Agent服务与评测系统的集成
+Agent评测集成 - 简化版
 
-提供在Agent执行过程中进行自动评测的接口
+直接使用以下方式进行评测，无需通过此模块：
+
+【方式1】执行级评测（自动运行）
+----------
+Agent执行完成后，系统自动调用 RuleBasedEvaluator：
+
+  from agents.services.agent_service import AgentService
+
+  result = agent_service.execute_agent(agent_id, user_input, user_id)
+  # execution.evaluation_score 自动保存
+
+【方式2】详细评测（手动/批量）
+----------
+用 test_case 对执行进行详细评测：
+
+  from agents.evaluation.rule_based_evaluator import RuleBasedEvaluator
+
+  evaluator = RuleBasedEvaluator()
+  result = evaluator.evaluate(execution, test_case)
+
+  print(result['score'])
+  print(result['details'])
+  print(result['confidence'])
+
+【方式3】数据集批量评测
+----------
+CLI 批量评测：
+
+  python scripts/evaluate_agent.py \\
+    --agent-id my-agent \\
+    --dataset simple \\
+    --output report.json
+
+=== 架构说明 ===
+
+评测系统已统一为单一设计：
+
+  - RuleBasedEvaluator: 轻量级评测（4维）
+    ├─ 关键词覆盖率 (30%)
+    ├─ 长度合理性 (25%)
+    ├─ 安全用词 (20%)
+    └─ 工具使用 (25%)
+
+    每维返回:
+    {
+        "score": 0.0-1.0,
+        "justification": "原因",
+        "confidence": 0.0-1.0,
+        "evidence": {...}  # 维度相关
+    }
+
+  - AgentEvaluator: 详细评测（5维+性能）
+    用于需要详细分析的场景
+
+此模块保留是为了向后兼容，
+推荐直接使用 RuleBasedEvaluator。
 """
 
-from typing import Optional, Dict, Any
-from loguru import logger
-
-from agents.evaluation import AgentEvaluator
-
-
-class EvaluationIntegration:
-    """Agent评测集成类"""
-
-    def __init__(self):
-        self.evaluator = AgentEvaluator()
-
-    def evaluate_agent_execution(
-        self,
-        execution,
-        ground_truth: Optional[Dict[str, Any]] = None,
-        use_llm: bool = False,
-    ) -> Dict[str, Any]:
-        """
-        评测Agent执行结果
-
-        这个方法可以集成到agents/services/agent_service.py中
-
-        Args:
-            execution: AgentExecution对象
-            ground_truth: 预期结果
-            use_llm: 是否使用LLM进行详细评测
-
-        Returns:
-            Dict: 包含evaluation_report和evaluation_passed的字典
-        """
-        try:
-            logger.info(f"开始评测Agent执行: {execution.id}")
-
-            # 执行评测
-            report = self.evaluator.evaluate_execution(
-                execution, ground_truth=ground_truth, use_llm=use_llm
-            )
-
-            # 记录评测结果
-            logger.info(
-                f"评测完成 - 总分: {report.overall_score:.0%}, 状态: {report.status}"
-            )
-
-            # 返回结果
-            return {
-                "evaluation_report": report.to_dict(),
-                "evaluation_passed": report.passed,
-                "overall_score": report.overall_score,
-            }
-
-        except Exception as e:
-            logger.error(f"评测失败: {e}")
-            return {
-                "evaluation_report": None,
-                "evaluation_passed": False,
-                "error": str(e),
-            }
-
-    def should_execute_evaluation(self, execution) -> bool:
-        """
-        判断是否应该对此次执行进行评测
-
-        可根据配置、环境、执行状态等条件判断
-
-        Args:
-            execution: AgentExecution对象
-
-        Returns:
-            bool: 是否应该执行评测
-        """
-        # 只对完成或失败的执行进行评测
-        if hasattr(execution, "status") and execution.status in ["completed", "failed"]:
-            return True
-
-        return False
-
-    def get_evaluation_summary(self, evaluations: list) -> Dict[str, Any]:
-        """
-        生成多个评测结果的汇总
-
-        Args:
-            evaluations: 评测结果列表
-
-        Returns:
-            Dict: 汇总信息
-        """
-        if not evaluations:
-            return {}
-
-        scores = [e.get("overall_score", 0) for e in evaluations]
-        passed = sum(1 for e in evaluations if e.get("evaluation_passed", False))
-
-        return {
-            "total_evaluations": len(evaluations),
-            "passed": passed,
-            "failed": len(evaluations) - passed,
-            "average_score": sum(scores) / len(scores) if scores else 0,
-            "max_score": max(scores) if scores else 0,
-            "min_score": min(scores) if scores else 0,
-            "pass_rate": passed / len(evaluations) if evaluations else 0,
-        }
+# 已弃用的方式（使用上面的方式代替）：
+# from agents.services.evaluation_integration import EvaluationIntegration
+# ei = EvaluationIntegration()
+# ei.evaluate_agent_execution(execution, test_case)
