@@ -1,11 +1,133 @@
-"""
-评测标准库 - 定义所有评测的标准和阈值
+# agents/evaluation/rubrics.py
 
-包含：
-1. 执行效果评测维度 (EXECUTION_RUBRIC)
-2. 性能评测指标 (PERFORMANCE_METRICS)
-3. 评测通过阈值 (EVALUATION_THRESHOLD)
-"""
+from dataclasses import dataclass
+from typing import Dict, List, Any
+
+@dataclass
+class CriterionConfig:
+    """单个评测维度配置"""
+    name: str                    # 维度名称，如 "keyword_coverage"
+    weight: float               # 权重，0-1
+    description: str            # 描述
+    applicable_task_types: List[str]  # 适用的任务类型
+
+@dataclass
+class RubricConfig:
+    """评测标准配置"""
+    task_type: str              # 任务类型，如 "document_search", "sql_query"
+    criteria: List[CriterionConfig]  # 该任务类型的所有维度
+    pass_threshold: float       # 通过阈值（0-1）
+    description: str            # 该rubric的描述
+
+# 定义所有Rubric配置
+RUBRICS: Dict[str, RubricConfig] = {
+    "document_search": RubricConfig(
+        task_type="document_search",
+        criteria=[
+            CriterionConfig(
+                name="keyword_coverage",
+                weight=0.40,
+                description="输出中包含的关键词比例",
+                applicable_task_types=["document_search", "faq", "analysis"]
+            ),
+            CriterionConfig(
+                name="length_ok",
+                weight=0.30,
+                description="输出长度是否合理",
+                applicable_task_types=["document_search", "faq", "analysis"]
+            ),
+            CriterionConfig(
+                name="no_bad_words",
+                weight=0.20,
+                description="不包含禁词",
+                applicable_task_types=["document_search", "faq", "analysis"]
+            ),
+            CriterionConfig(
+                name="tools_ok",
+                weight=0.10,
+                description="工具使用是否恰当",
+                applicable_task_types=["document_search"]
+            ),
+        ],
+        pass_threshold=0.75,
+        description="文档搜索任务评测标准"
+    ),
+
+    "sql_query": RubricConfig(
+        task_type="sql_query",
+        criteria=[
+            CriterionConfig(
+                name="sql_success",
+                weight=0.35,
+                description="SQL是否成功执行",
+                applicable_task_types=["sql_query"]
+            ),
+            CriterionConfig(
+                name="result_count",
+                weight=0.25,
+                description="返回结果数量是否合理",
+                applicable_task_types=["sql_query"]
+            ),
+            CriterionConfig(
+                name="result_accuracy",
+                weight=0.25,
+                description="返回结果是否准确（如果有reference）",
+                applicable_task_types=["sql_query"]
+            ),
+            CriterionConfig(
+                name="performance",
+                weight=0.15,
+                description="查询执行效率",
+                applicable_task_types=["sql_query"]
+            ),
+        ],
+        pass_threshold=0.75,
+        description="SQL查询任务评测标准"
+    ),
+
+    "analysis": RubricConfig(
+        task_type="analysis",
+        criteria=[
+            CriterionConfig(
+                name="metric_presence",
+                weight=0.35,
+                description="是否包含期望的指标",
+                applicable_task_types=["analysis", "report"]
+            ),
+            CriterionConfig(
+                name="numerical_accuracy",
+                weight=0.35,
+                description="数值准确性（如果有reference）",
+                applicable_task_types=["analysis"]
+            ),
+            CriterionConfig(
+                name="result_format",
+                weight=0.20,
+                description="结果格式是否清晰",
+                applicable_task_types=["analysis", "report"]
+            ),
+            CriterionConfig(
+                name="no_bad_words",
+                weight=0.10,
+                description="不包含禁词或不当表述",
+                applicable_task_types=["analysis"]
+            ),
+        ],
+        pass_threshold=0.75,
+        description="数据分析任务评测标准"
+    ),
+}
+
+# 默认Rubric（当task_type未指定时使用）
+DEFAULT_RUBRIC = RUBRICS["document_search"]
+
+def get_rubric(task_type: str) -> RubricConfig:
+    """获取指定任务类型的Rubric，如果不存在则返回默认"""
+    return RUBRICS.get(task_type, DEFAULT_RUBRIC)
+
+
+# ============== 向后兼容性：保留旧的常量定义 ==============
+# 这些在Task 2中将被重构
 
 # ============== 执行效果评测标准 ==============
 # 权重总和：100% = 1.0

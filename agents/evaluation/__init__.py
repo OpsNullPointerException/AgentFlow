@@ -5,6 +5,13 @@ Agent评测系统模块
 """
 
 from .rubrics import (
+    # 新的数据类和函数
+    CriterionConfig,
+    RubricConfig,
+    RUBRICS,
+    DEFAULT_RUBRIC,
+    get_rubric,
+    # 向后兼容：保留旧的常量
     EXECUTION_RUBRIC,
     PERFORMANCE_METRICS,
     EVALUATION_THRESHOLD,
@@ -15,7 +22,13 @@ from .evaluator import AgentEvaluator, EvaluationReport
 from .rule_based_evaluator import RuleBasedEvaluator
 
 __all__ = [
-    # 标准库
+    # 新的数据类和函数
+    "CriterionConfig",
+    "RubricConfig",
+    "RUBRICS",
+    "DEFAULT_RUBRIC",
+    "get_rubric",
+    # 向后兼容：保留旧的常量
     "EXECUTION_RUBRIC",
     "PERFORMANCE_METRICS",
     "EVALUATION_THRESHOLD",
