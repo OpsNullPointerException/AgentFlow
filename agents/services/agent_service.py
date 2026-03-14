@@ -604,10 +604,13 @@ class AgentService:
         try:
             from agents.evaluation.rule_based_evaluator import RuleBasedEvaluator
 
-            # 构建测试用例（从execution_steps中推断）
+            # 从用户输入中提取关键词
+            keywords = self._extract_keywords_from_input(execution.user_input)
+
+            # 构建测试用例
             test_case = {
                 "expected": {
-                    "keywords": [],  # 可根据需要从execution_steps中提取
+                    "keywords": keywords,
                     "min_length": 30,
                     "max_length": 5000,
                     "should_NOT_contain": [],
@@ -630,6 +633,22 @@ class AgentService:
         except Exception as e:
             logger.warning(f"执行评测失败: {e}")
             # 评测失败不影响主流程
+
+    def _extract_keywords_from_input(self, user_input: str) -> list:
+        """从用户输入中提取关键词"""
+        import re
+
+        # 分词
+        words = re.findall(r'\w+', user_input)
+
+        # 停用词列表
+        stopwords = {'的', '和', '在', '是', '了', '个', '到', '对', '被', '我', '你', '他', '这', '那', '一'}
+
+        # 过滤停用词和过短词汇
+        keywords = [w for w in words if w not in stopwords and len(w) > 1]
+
+        # 去重并排序，最多保留10个关键词
+        return list(dict.fromkeys(keywords))[:10]
 
     def delete_agent(self, agent_id: str, user_id: int):
         """删除Agent"""
