@@ -517,6 +517,9 @@ class AgentService:
 
             execution.save()
 
+            # 自动评测（如果test_case可用）
+            self._evaluate_execution(execution)
+
             # 保存记忆到数据库
             if conversation_id:
                 memory = agent_executor.memory
@@ -595,6 +598,38 @@ class AgentService:
         except Exception as e:
             logger.error(f"更新Agent失败: {e}")
             raise
+
+    def _evaluate_execution(self, execution: AgentExecution):
+        """自动评测执行结果"""
+        try:
+            from agents.evaluation.rule_based_evaluator import RuleBasedEvaluator
+
+            # 构建测试用例（从execution_steps中推断）
+            test_case = {
+                "expected": {
+                    "keywords": [],  # 可根据需要从execution_steps中提取
+                    "min_length": 30,
+                    "max_length": 5000,
+                    "should_NOT_contain": [],
+                    "expected_tools": execution.tools_used or [],
+                }
+            }
+
+            evaluator = RuleBasedEvaluator()
+            eval_result = evaluator.evaluate(execution, test_case)
+
+            execution.evaluation_score = eval_result["score"]
+            execution.evaluation_details = eval_result["details"]
+            execution.evaluation_passed = eval_result["passed"]
+            execution.evaluation_report = eval_result["reasoning"]
+
+            execution.save(update_fields=["evaluation_score", "evaluation_details", "evaluation_passed", "evaluation_report"])
+
+            logger.info(f"执行 {execution.id} 评测完成：得分={eval_result['score']:.2f}，通过={eval_result['passed']}")
+
+        except Exception as e:
+            logger.warning(f"执行评测失败: {e}")
+            # 评测失败不影响主流程
 
     def delete_agent(self, agent_id: str, user_id: int):
         """删除Agent"""

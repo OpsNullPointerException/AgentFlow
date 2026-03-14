@@ -124,6 +124,12 @@ class AgentExecution(models.Model):
     execution_time = models.FloatField("执行时间(秒)", null=True, blank=True)
     token_usage = models.JSONField("令牌使用量", default=dict, blank=True)
 
+    # 评测指标
+    evaluation_score = models.FloatField("评测得分(0-1)", null=True, blank=True)
+    evaluation_details = models.JSONField("评测详情", default=dict, blank=True)
+    evaluation_passed = models.BooleanField("评测是否通过", null=True, blank=True)
+    evaluation_report = models.TextField("评测报告", blank=True)
+
     # 时间戳
     started_at = models.DateTimeField("开始时间", auto_now_add=True)
     completed_at = models.DateTimeField("完成时间", null=True, blank=True)
