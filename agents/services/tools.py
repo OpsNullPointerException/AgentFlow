@@ -14,6 +14,7 @@ from django.db import connection
 from qa.services.rag_service import RAGService
 from agents.services.validators import SQLValidator
 from agents.services.tool_retry import ToolRetryWrapper
+from agents.services.tools.time_tool import TimeConversionTool
 
 
 class DocumentSearchInput(BaseModel):
@@ -379,6 +380,7 @@ class ToolRegistry:
         "web_search": WebSearchTool,
         "sql_query": SQLQueryTool,
         "schema_query": SchemaQueryTool,
+        "convert_relative_time": TimeConversionTool,
     }
 
     @classmethod
