@@ -42,6 +42,11 @@ class Document(models.Model):
         ("failed", "处理失败"),
     )
 
+    DOC_CATEGORY_CHOICES = (
+        ("user", "用户文档"),  # 用户可见
+        ("internal", "内部文档"),  # 仅SQL生成用
+    )
+
     title = models.CharField("标题", max_length=255)
     file = models.FileField("文件", upload_to=document_file_path)
     file_type = models.CharField("文件类型", max_length=10, choices=DOCUMENT_TYPES)
@@ -57,6 +62,9 @@ class Document(models.Model):
     # 存储Celery任务ID
     task_id = models.CharField("任务ID", max_length=255, null=True, blank=True)
 
+    # 文档分类：user=用户可见，internal=仅内部使用（SQL生成等）
+    doc_category = models.CharField("文档分类", max_length=20, choices=DOC_CATEGORY_CHOICES, default="user")
+
     # 软删除字段
     is_deleted = models.BooleanField("是否删除", default=False)
     deleted_at = models.DateTimeField("删除时间", null=True, blank=True)
@@ -71,6 +79,10 @@ class Document(models.Model):
         verbose_name = "文档"
         verbose_name_plural = "文档"
         ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["doc_category", "status"]),  # 加速查询
+            models.Index(fields=["owner_id", "doc_category"]),
+        ]
 
     def __str__(self):
         return self.title
