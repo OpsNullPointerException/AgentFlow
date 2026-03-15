@@ -19,8 +19,8 @@ from .tools import ToolRegistry
 from qa.services.llm_service import LLMService
 from .observation_masking import ObservationMasker
 from .smart_memory import SmartMemoryManager
-from .executor_base import BaseAgentExecutor
-from .executor_langgraph import LangGraphAgentExecutor
+from agents.langgraph_graph import create_agent_graph
+from agents.langgraph_state import create_initial_state
 
 
 # ============== 默认系统提示词 ==============
@@ -257,38 +257,45 @@ class AgentService:
         except Exception as e:
             logger.error(f"保存记忆到数据库失败: {e}")
 
-    def _create_agent_executor(
+    def _execute_langgraph(
         self,
-        agent_config: Agent,
-        conversation_id: Optional[int] = None,
-        callback_handler: Optional[Any] = None,
-    ) -> BaseAgentExecutor:
-        """创建Agent执行器 - 返回LangGraph执行器"""
+        llm: Any,
+        tools: List,
+        memory_manager: Any,
+        user_input: str,
+    ) -> Dict[str, Any]:
+        """直接执行LangGraph Agent"""
         try:
-            # 创建LLM
-            llm = self._create_llm(agent_config)
+            start_time = time.time()
 
-            # 创建工具
-            tools = ToolRegistry.get_tools_by_names(agent_config.available_tools)
-            if not tools:
-                logger.warning("没有可用工具，使用默认工具")
-                tools = [ToolRegistry.get_tool("document_search")]
-
-            # 创建记忆
-            memory = self._create_memory(agent_config, conversation_id)
-
-            # 使用LangGraph执行器
-            logger.info("创建LangGraph执行器")
-            executor = LangGraphAgentExecutor(
-                llm=llm,
-                tools=tools,
-                memory_manager=memory,
-                agent_config=agent_config,
+            # 创建初始状态
+            state = create_initial_state(
+                user_input=user_input,
+                user_id="",
+                agent_id="",
+                conversation_id=None,
+                max_iterations=10
             )
-            return executor
+
+            # 创建Agent图
+            agent_graph = create_agent_graph(llm, tools, memory_manager)
+
+            # 执行Agent图
+            result_state = agent_graph.invoke(state)
+
+            duration = time.time() - start_time
+
+            return {
+                "output": result_state.get("final_answer", ""),
+                "tools_used": result_state.get("tools_used", []),
+                "execution_steps": result_state.get("execution_steps", []),
+                "error_message": result_state.get("error_message", ""),
+                "execution_time": duration,
+                "memory": memory_manager,
+            }
 
         except Exception as e:
-            logger.error(f"创建Agent执行器失败: {e}")
+            logger.error(f"LangGraph执行失败: {e}")
             raise
 
     def execute_agent(
@@ -312,30 +319,34 @@ class AgentService:
             )
             execution_id = str(execution.id)
 
-            # 创建Agent执行器（不需要回调处理器）
-            agent_executor = self._create_agent_executor(agent_config, conversation_id)
-
             logger.info(f"开始执行Agent {agent_id}: {user_input}")
 
-            # 执行Agent
-            executor_result = agent_executor.invoke(user_input)
+            # 创建LLM、工具、记忆
+            llm = self._create_llm(agent_config)
+            tools = ToolRegistry.get_tools_by_names(agent_config.available_tools)
+            if not tools:
+                logger.warning("没有可用工具，使用默认工具")
+                tools = [ToolRegistry.get_tool("document_search")]
+            memory = self._create_memory(agent_config, conversation_id)
+
+            # 执行LangGraph Agent
+            result = self._execute_langgraph(llm, tools, memory, user_input)
 
             # 计算执行时间
             execution_time = time.time() - start_time
 
             # 更新执行记录
-            execution.agent_output = executor_result.output
-            execution.execution_steps = executor_result.execution_steps or []
-            execution.tools_used = executor_result.tools_used
-
+            execution.agent_output = result["output"]
+            execution.execution_steps = result["execution_steps"] or []
+            execution.tools_used = result["tools_used"]
             execution.status = "completed"
             execution.execution_time = execution_time
             execution.completed_at = datetime.now()
-            execution.error_message = executor_result.error_message or ""
+            execution.error_message = result["error_message"] or ""
 
             # 确保执行步骤是可序列化的
             try:
-                json.dumps(execution.execution_steps)  # 测试序列化
+                json.dumps(execution.execution_steps)
             except (TypeError, ValueError) as e:
                 logger.warning(f"执行步骤无法序列化: {e}")
                 execution.execution_steps = []
@@ -347,8 +358,7 @@ class AgentService:
 
             # 保存记忆到数据库
             if conversation_id:
-                memory = agent_executor.memory
-                self._save_memory_to_db(agent_id, conversation_id, user_id, memory)
+                self._save_memory_to_db(agent_id, conversation_id, user_id, result["memory"])
                 logger.info(f"已保存Agent {agent_id} 对话 {conversation_id} 的记忆到数据库")
 
             # 更新Agent统计
