@@ -44,9 +44,10 @@ class AgentState(TypedDict):
 
     # 错误和重试
     error_message: Optional[str]
-    error_diagnosis: Optional[str]  # 错误诊断: "syntax_error" / "no_results" / "field_not_exists" / "timeout"
+    error_diagnosis: Optional[str]  # 错误诊断: "syntax_error" / "no_results" / "field_not_exists" / "timeout" / "invalid_answer" / "evaluation_failed"
+    error_category: Optional[str]  # 错误分类: "retryable_logic_error" / "permanent_error" / "temporary_error"
     retry_count: int  # 重试次数
-    retry_strategy: Optional[str]  # 重试策略: "regenerate_sql" / "reprobe_fields" / "rediscover_schema" / "give_up"
+    retry_strategy: Optional[str]  # 重试策略: "regenerate_sql" / "reprobe_fields" / "rediscover_schema" / "requery_knowledge" / "give_up"
 
     # 记忆和上下文
     chat_history: List[BaseMessage]  # 聊天历史
@@ -110,6 +111,7 @@ def create_initial_state(
         "eval_score": 0.0,
         "error_message": None,
         "error_diagnosis": None,
+        "error_category": None,
         "retry_count": 0,
         "retry_strategy": None,
         "chat_history": [],

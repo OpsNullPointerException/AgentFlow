@@ -538,6 +538,7 @@ SQL生成要求：
 
             # ========== 错误诊断逻辑 ==========
             error_diagnosis = None
+            error_category = None  # "retryable_logic_error" / "permanent_error" / "temporary_error"
             error_message = state.get("error_message", "")
             sql_result = state.get("sql_result")
             final_answer = state.get("final_answer", "")
@@ -547,32 +548,44 @@ SQL生成要求：
                 if error_message:
                     if any(keyword in error_message for keyword in ["语法", "syntax", "SQL", "错误的列"]):
                         error_diagnosis = "syntax_error"
-                        logger.info("Diagnosed: syntax_error")
+                        error_category = "retryable_logic_error"
+                        logger.info("Diagnosed: syntax_error (retryable)")
                     elif any(keyword in error_message for keyword in ["字段", "column", "not exist"]):
                         error_diagnosis = "field_not_exists"
-                        logger.info("Diagnosed: field_not_exists")
-                    elif any(keyword in error_message for keyword in ["超时", "timeout"]):
+                        error_category = "retryable_logic_error"
+                        logger.info("Diagnosed: field_not_exists (retryable)")
+                    elif any(keyword in error_message for keyword in ["超时", "timeout", "Time out"]):
                         error_diagnosis = "timeout"
-                        logger.info("Diagnosed: timeout")
+                        error_category = "permanent_error"  # 工具层已重试，不需在node层再重试
+                        logger.info("Diagnosed: timeout (permanent - already retried at tool layer)")
+                    elif any(keyword in error_message for keyword in ["权限", "permission", "denied", "access"]):
+                        error_diagnosis = "permission_error"
+                        error_category = "permanent_error"
+                        logger.info("Diagnosed: permission_error (permanent)")
                     else:
                         error_diagnosis = "unknown_error"
+                        error_category = "permanent_error"
                 elif not sql_result or (isinstance(sql_result, str) and not sql_result.strip()):
                     # SQL执行但无结果
                     error_diagnosis = "no_results"
-                    logger.info("Diagnosed: no_results")
+                    error_category = "retryable_logic_error"
+                    logger.info("Diagnosed: no_results (retryable)")
                 elif not final_answer or len(final_answer.strip()) < 10:
                     # 最终答案太短或为空
                     error_diagnosis = "invalid_answer"
-                    logger.info("Diagnosed: invalid_answer")
+                    error_category = "retryable_logic_error"
+                    logger.info("Diagnosed: invalid_answer (retryable)")
                 else:
                     error_diagnosis = "evaluation_failed"
-                    logger.info("Diagnosed: evaluation_failed")
+                    error_category = "retryable_logic_error"
+                    logger.info("Diagnosed: evaluation_failed (retryable)")
 
             return {
                 "evaluation_result": eval_result,
                 "eval_passed": eval_passed,
                 "eval_score": eval_score,
                 "error_diagnosis": error_diagnosis,
+                "error_category": error_category,
             }
 
         except ImportError:

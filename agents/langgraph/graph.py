@@ -234,12 +234,18 @@ class AgentGraphBuilder:
         return "loop"
 
     def _route_on_evaluation(self, state: AgentState) -> str:
-        """根据评测结果路由"""
+        """根据评测结果路由 - 考虑错误分类"""
 
         if state["eval_passed"]:
             return "passed"
 
-        # 如果评测失败但还能重试，重试
+        # 检查错误分类：永久性错误不需要重试
+        error_category = state.get("error_category")
+        if error_category == "permanent_error":
+            logger.info(f"Non-retryable error (permanent): {state.get('error_diagnosis')}")
+            return "failed"  # 直接失败，不进入error_recovery
+
+        # 如果评测失败但还能重试，进入error_recovery
         if state["retry_count"] < 2:
             return "retry"
 
