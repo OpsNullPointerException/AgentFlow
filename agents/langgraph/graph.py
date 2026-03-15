@@ -241,19 +241,19 @@ class AgentGraphBuilder:
 
         # 检查错误分类：永久性错误不需要重试
         error_category = state.get("error_category")
-        if error_category == "permanent_error":
-            logger.info(f"Non-retryable error (permanent): {state.get('error_diagnosis')}")
-            return "failed"  # 直接失败，不进入error_recovery
-
-        # 检查是否还有重试机会（基于RetryConfig.MAX_RETRIES）
         retry_count = state.get("retry_count", 0)
-        if retry_count < RetryConfig.MAX_RETRIES:
-            logger.info(f"Retrying: {retry_count}/{RetryConfig.MAX_RETRIES} attempts")
-            return "retry"
 
-        # 重试次数过多，返回失败
-        logger.warning(f"Max retries reached ({RetryConfig.MAX_RETRIES}), giving up")
-        return "failed"
+        # 使用RetryConfig判断是否应该重试
+        if not RetryConfig.should_retry(retry_count, error_category):
+            if error_category == "permanent_error":
+                logger.info(f"Non-retryable error (permanent): {state.get('error_diagnosis')}")
+            else:
+                logger.warning(f"Max retries reached ({RetryConfig.MAX_RETRIES}), giving up")
+            return "failed"
+
+        # 还有重试机会，进入error_recovery
+        logger.info(f"Retrying: {retry_count}/{RetryConfig.MAX_RETRIES} attempts")
+        return "retry"
 
     def _route_on_error_recovery(self, state: AgentState) -> str:
         """错误恢复路由 - 基于诊断的重试策略"""

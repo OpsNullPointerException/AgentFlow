@@ -36,13 +36,6 @@ class RetryConfig:
         "permission_error": 0.0,    # 权限错误：不会重试
     }
 
-    # 不同路径的重试优先级（影响出现问题时的处理顺序）
-    RETRY_PRIORITY = {
-        "knowledge": 1,  # 知识路径：优先级1（快速失败）
-        "data": 2,       # 数据路径：优先级2（重试策略更复杂）
-        "hybrid": 2,     # 混合路径：优先级2
-    }
-
     @staticmethod
     def get_retry_delay(error_diagnosis: str) -> float:
         """获取错误类型对应的重试延迟时间（秒）"""
