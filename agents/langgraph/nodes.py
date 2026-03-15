@@ -20,7 +20,7 @@ class NodeManager:
     """管理所有Agent节点函数"""
 
     def __init__(self, llm: BaseLLM, tools: List[BaseTool], memory_manager: Optional[object] = None):
-        self.llm = llm
+        self.llm: BaseLLM = llm
         self.tools = tools
         self.tool_map = {tool.name: tool for tool in tools}
         self.memory_manager:SmartMemoryManager = memory_manager
