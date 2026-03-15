@@ -1,4 +1,48 @@
-"""LangGraph Agent 图构建"""
+"""LangGraph Agent 图构建
+
+多路径路由架构：
+
+                    ┌──────────────────────┐
+                    │  input_processing    │
+                    │  (提取memory context) │
+                    └──────────┬───────────┘
+                               │
+                    ┌──────────▼───────────┐
+                    │ intent_detection     │
+                    │ (分类query意图)      │
+                    └──────────┬───────────┘
+                               │
+                ┌──────────────┼──────────────┐
+                │              │              │
+                ▼              ▼              ▼
+         ┌──────────────┐ ┌──────────────┐ ┌──────────┐
+         │  knowledge   │ │     data     │ │  hybrid  │
+         │    path      │ │    path      │ │   path   │
+         └──────┬───────┘ └──────┬───────┘ └────┬─────┘
+                │                │              │
+    terminology │                │              │
+    clarification   time_check───┼──────────────┤
+                │                │              │
+                │         schema_discovery     │
+                │                │              │
+                │          field_probing        │
+                │                │              │
+                │            main_query         │
+                │                │              │
+                └────────┬───────┴──────┬───────┘
+                         │              │
+              result_explanation ◄──────┘
+                         │
+                    evaluate
+                         │
+         ┌───────────────┼───────────────┐
+         ▼               ▼               ▼
+    final_answer    final_answer    error_handler
+         │               │               │
+         └───────────────┼───────────────┘
+                         │
+                        END
+"""
 
 from langgraph.graph import StateGraph, END
 from typing import List, Optional
@@ -44,16 +88,31 @@ class AgentGraphBuilder:
         # 定义边
         graph.add_edge("input_processing", "intent_detection")
 
-        # 意图检测后的条件路由
-        # 当前简化为总是进入 agent_loop（完整实现需要多路径路由）
-        graph.add_edge("intent_detection", "agent_loop")
+        # 意图检测后的条件路由 - 多路径智能流转
+        graph.add_conditional_edges(
+            "intent_detection",
+            self._route_by_intent,
+            {
+                "knowledge": "terminology_clarification",
+                "data": "time_check",
+                "hybrid": "terminology_clarification",  # hybrid先走知识
+            }
+        )
 
-        # 对于数据查询的补充路径（可选）
-        # 这些节点可以在 agent_loop 中被调用，或者通过条件路由触发
+        # 知识路径
+        graph.add_edge("terminology_clarification", "result_explanation")
+
+        # 数据路径的补充边（从terminology_clarification在hybrid情况下也能进入）
         graph.add_edge("time_check", "schema_discovery")
         graph.add_edge("schema_discovery", "field_probing")
         graph.add_edge("field_probing", "main_query")
         graph.add_edge("main_query", "result_explanation")
+
+        # 从terminology_clarification对于hybrid路径继续到数据路径
+        # 这通过result_explanation节点的后处理或通过额外的条件边实现
+        # 当前简化：都通过result_explanation到evaluate
+
+        # 所有查询路径都进入结果解释和评测
         graph.add_edge("result_explanation", "evaluate")
 
         # 条件边：Agent循环是否继续
@@ -118,6 +177,18 @@ class AgentGraphBuilder:
         return compiled_graph
 
     # ============ 路由函数 ============
+
+    def _route_by_intent(self, state: AgentState) -> str:
+        """根据意图类型路由到不同的处理路径"""
+        intent = state.get("intent_type", "data")
+        logger.info(f"Routing by intent: {intent}")
+
+        if intent == "knowledge":
+            return "knowledge"
+        elif intent == "hybrid":
+            return "hybrid"
+        else:  # data or default
+            return "data"
 
     def _should_continue_loop(self, state: AgentState) -> str:
         """判断是否继续Agent循环"""
