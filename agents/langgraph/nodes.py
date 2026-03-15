@@ -308,6 +308,9 @@ class NodeManager:
                 except Exception as e:
                     logger.warning(f"Failed to clarify '{term}': {e}")
 
+        except Exception as e:
+            logger.error(f"Terminology clarification error: {e}")
+
         logger.info(f"Clarified {len(clarified_terms)} terms")
 
         return {
