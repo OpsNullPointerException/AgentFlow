@@ -250,6 +250,86 @@ class SmartMemoryManager:
             "messages": self.get_messages(),
         }
 
+    def retrieve_relevant_memory(
+        self,
+        query: str,
+        top_k: int = 5
+    ) -> str:
+        """
+        检索相关记忆
+
+        评分策略：
+        1. 关键词匹配相似度（基于query中的词）
+        2. importance * recency（已有）
+        3. 综合得分 = keyword_similarity * 0.5 + (importance * recency) * 0.5
+
+        Args:
+            query: 当前查询文本
+            top_k: 返回的最相关记忆数量
+
+        Returns:
+            格式化的历史对话字符串
+        """
+        if not self.messages:
+            return ""
+
+        # 计算每条消息的综合分数
+        now = datetime.now()
+        scored_messages = []
+
+        for msg in self.messages:
+            # 1. 计算recency分数
+            recency_score = MemoryImportance.score_by_recency(msg["timestamp"], now)
+
+            # 2. 计算importance * recency
+            importance_recency = msg["importance"] * recency_score
+
+            # 3. 计算关键词匹配相似度（简单版：检查query中的词是否出现在消息中）
+            query_words = set(query.lower().split())
+            msg_words = set(msg["content"].lower().split())
+
+            if query_words:
+                # 计算Jaccard相似度：交集 / 并集
+                intersection = len(query_words & msg_words)
+                union = len(query_words | msg_words)
+                keyword_similarity = intersection / union if union > 0 else 0.0
+            else:
+                keyword_similarity = 0.0
+
+            # 4. 综合得分 = 关键词相似度 * 0.5 + importance*recency * 0.5
+            combined_score = keyword_similarity * 0.5 + importance_recency * 0.5
+
+            scored_messages.append({
+                **msg,
+                "combined_score": combined_score
+            })
+
+        # 排序并取top_k
+        scored_messages.sort(key=lambda x: x["combined_score"], reverse=True)
+        top_messages = scored_messages[:top_k]
+
+        # 格式化为字符串
+        if not top_messages:
+            return ""
+
+        context_lines = ["【历史相关对话】"]
+        for msg in top_messages:
+            role = "用户" if msg["type"] == "human" else "助手"
+            # 截断过长的消息
+            content = msg["content"][:200] + "..." if len(msg["content"]) > 200 else msg["content"]
+            context_lines.append(f"{role}: {content}")
+
+        return "\n".join(context_lines)
+
+    def get_stats(self) -> dict[str, Any]:
+        """获取记忆统计（兼容LangChain接口）"""
+        return {
+            "total_conversations": len(self.messages),
+            "total_users": 1,  # 简化：总是1
+            "total_messages": len(self.messages),
+            "total_tokens": self._estimate_tokens(),
+        }
+
     def clear(self):
         """清空所有消息"""
         self.messages = []

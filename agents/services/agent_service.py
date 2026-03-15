@@ -19,8 +19,7 @@ from agents.services.tools import ToolRegistry
 from qa.services.llm_service import LLMService
 from .observation_masking import ObservationMasker
 from .smart_memory import SmartMemoryManager
-from agents.langgraph_graph import create_agent_graph
-from agents.langgraph_state import create_initial_state
+from agents.langgraph import create_agent_graph, create_initial_state
 
 
 # ============== 默认系统提示词 ==============
@@ -278,7 +277,7 @@ class AgentService:
             )
 
             # 创建Agent图
-            agent_graph = create_agent_graph(llm, tools, memory_manager)
+            agent_graph = create_agent_graph(llm, tools, memory_manager, ":memory:")
 
             # 执行Agent图
             result_state = agent_graph.invoke(state)

@@ -8,7 +8,7 @@ from typing import Optional, Dict, Any, List
 from langchain_core.language_models import BaseLLM
 from langchain_core.tools import BaseTool
 
-from agents.langgraph_state import AgentState, ExecutionStep
+from .state import AgentState, ExecutionStep
 
 logger = logging.getLogger(__name__)
 
@@ -16,17 +16,31 @@ logger = logging.getLogger(__name__)
 class NodeManager:
     """管理所有Agent节点函数"""
 
-    def __init__(self, llm: BaseLLM, tools: List[BaseTool]):
+    def __init__(self, llm: BaseLLM, tools: List[BaseTool], memory_manager: Optional[object] = None):
         self.llm = llm
         self.tools = tools
         self.tool_map = {tool.name: tool for tool in tools}
+        self.memory_manager = memory_manager
 
     def process_input_node(self, state: AgentState) -> Dict[str, Any]:
         """处理用户输入"""
         logger.info(f"Processing input for user {state['user_id']}: {state['user_input']}")
-        
+
+        # 从记忆中检索相关上下文
+        memory_context = None
+        if self.memory_manager:
+            try:
+                memory_context = self.memory_manager.retrieve_relevant_memory(
+                    query=state['user_input'],
+                    top_k=5
+                )
+                if memory_context:
+                    logger.info(f"Retrieved memory context: {memory_context[:100]}...")
+            except Exception as e:
+                logger.error(f"Failed to retrieve memory: {e}")
+
         return {
-            "memory_context": None,
+            "memory_context": memory_context,
             "iteration": 0,
         }
 
@@ -159,7 +173,7 @@ class NodeManager:
     def _build_prompt(self, state: AgentState) -> str:
         """构建Agent提示词"""
         tools_str = "\n".join([f"- {tool.name}: {tool.description}" for tool in self.tools])
-        
+
         prompt = f"""You are a helpful AI assistant.
 
 User input: {state['user_input']}

@@ -4,17 +4,21 @@ from langgraph.graph import StateGraph, END
 from typing import List, Optional
 from langchain_core.language_models import BaseLLM
 from langchain_core.tools import BaseTool
-from agents.langgraph_state import AgentState
-from agents.langgraph_nodes import NodeManager
+from .state import AgentState
+from .nodes import NodeManager
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class AgentGraphBuilder:
     """构建LangGraph Agent图"""
 
-    def __init__(self, llm: BaseLLM, tools: List[BaseTool]):
+    def __init__(self, llm: BaseLLM, tools: List[BaseTool], memory_manager: Optional[object] = None):
         self.llm = llm
         self.tools = tools
-        self.node_manager = NodeManager(llm, tools)
+        self.memory_manager = memory_manager
+        self.node_manager = NodeManager(llm, tools, memory_manager)
 
     def build(self, checkpointer_path: str = ":memory:") -> object:
         """构建并返回编译后的图"""
@@ -72,8 +76,25 @@ class AgentGraphBuilder:
         # 设置入口点
         graph.set_entry_point("input_processing")
 
-        # 编译图（暂不使用Checkpointing，后续支持）
-        compiled_graph = graph.compile()
+        # 创建Checkpointer
+        try:
+            if checkpointer_path == ":memory:":
+                from langgraph.checkpoint.memory import MemorySaver
+                checkpointer = MemorySaver()
+            else:
+                from langgraph.checkpoint.sqlite import SqliteSaver
+                checkpointer = SqliteSaver.from_conn_string(checkpointer_path)
+
+            # 编译图，传入checkpointer
+            compiled_graph = graph.compile(checkpointer=checkpointer)
+        except ImportError as e:
+            logger.error(f"Failed to import checkpointer: {e}")
+            # Fallback: compile without checkpointer
+            compiled_graph = graph.compile()
+        except Exception as e:
+            logger.error(f"Failed to create checkpointer: {e}")
+            # Fallback: compile without checkpointer
+            compiled_graph = graph.compile()
 
         return compiled_graph
 
@@ -124,9 +145,10 @@ class AgentGraphBuilder:
 def create_agent_graph(
     llm: BaseLLM,
     tools: List[BaseTool],
+    memory_manager: Optional[object] = None,
     checkpointer_path: str = ":memory:"
 ) -> object:
     """便利函数：创建Agent图"""
 
-    builder = AgentGraphBuilder(llm, tools)
+    builder = AgentGraphBuilder(llm, tools, memory_manager)
     return builder.build(checkpointer_path)
