@@ -33,6 +33,9 @@ class AgentGraphBuilder:
         graph.add_node("time_check", self.node_manager.time_check_node)
         graph.add_node("schema_discovery", self.node_manager.schema_discovery_node)
         graph.add_node("field_probing", self.node_manager.field_probing_node)
+        graph.add_node("terminology_clarification", self.node_manager.terminology_clarification_node)
+        graph.add_node("main_query", self.node_manager.main_query_node)
+        graph.add_node("result_explanation", self.node_manager.result_explanation_node)
         graph.add_node("tool_execution", self.node_manager.tool_execution_node)
         graph.add_node("evaluate", self.node_manager.evaluate_node)
         graph.add_node("final_answer", self.node_manager.final_answer_node)
@@ -44,6 +47,14 @@ class AgentGraphBuilder:
         # 意图检测后的条件路由
         # 当前简化为总是进入 agent_loop（完整实现需要多路径路由）
         graph.add_edge("intent_detection", "agent_loop")
+
+        # 对于数据查询的补充路径（可选）
+        # 这些节点可以在 agent_loop 中被调用，或者通过条件路由触发
+        graph.add_edge("time_check", "schema_discovery")
+        graph.add_edge("schema_discovery", "field_probing")
+        graph.add_edge("field_probing", "main_query")
+        graph.add_edge("main_query", "result_explanation")
+        graph.add_edge("result_explanation", "evaluate")
 
         # 条件边：Agent循环是否继续
         graph.add_conditional_edges(

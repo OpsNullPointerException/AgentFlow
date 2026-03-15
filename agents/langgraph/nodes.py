@@ -235,6 +235,102 @@ class NodeManager:
             logger.error(f"Field probing error: {e}")
             return {"field_samples": field_samples}
 
+    def terminology_clarification_node(self, state: AgentState) -> Dict[str, Any]:
+        """术语澄清节点 - 使用知识库澄清中文术语和行业黑话"""
+        logger.info("Clarifying terminology")
+
+        clarified_terms = []
+        doc_search_tool = self.tool_map.get("document_search")
+
+        if not doc_search_tool:
+            logger.warning("document_search tool not found")
+            return {"clarified_terms": clarified_terms}
+
+        # 提取可能需要澄清的术语（简单启发式）
+        chinese_patterns = ["A厂商", "B厂商", "供应商", "客户", "订单", "产品"]
+        for term in chinese_patterns:
+            if term in state['user_input']:
+                try:
+                    logger.info(f"Searching for term: {term}")
+                    result = doc_search_tool.run(term)
+                    clarified_terms.append({
+                        "term": term,
+                        "meaning": result
+                    })
+                except Exception as e:
+                    logger.warning(f"Failed to clarify {term}: {e}")
+
+        logger.info(f"Clarified {len(clarified_terms)} terms")
+
+        return {
+            "clarified_terms": clarified_terms,
+        }
+
+    def main_query_node(self, state: AgentState) -> Dict[str, Any]:
+        """主查询节点 - 基于所有信息生成和执行SQL"""
+        logger.info("Executing main query")
+
+        sql_tool = self.tool_map.get("sql_query")
+        if not sql_tool:
+            logger.warning("sql_query tool not found")
+            return {
+                "sql_result": None,
+                "error_message": "SQL tool not available"
+            }
+
+        # 从scratchpad中期望的SQL（这里简化处理）
+        # 实际应该由前面的节点收集信息后，由LLM生成SQL
+        sql_query = None
+
+        # 尝试从scratchpad中提取SQL查询
+        import re
+        sql_pattern = r"SELECT.*?(?:;|$)"
+        matches = re.finditer(sql_pattern, state["agent_scratchpad"], re.IGNORECASE | re.DOTALL)
+        for match in matches:
+            potential_sql = match.group(0).strip()
+            if potential_sql:
+                sql_query = potential_sql
+                break
+
+        if not sql_query:
+            logger.warning("No SQL query found in scratchpad")
+            return {
+                "sql_result": "❌ No SQL query generated",
+            }
+
+        try:
+            logger.info(f"Executing SQL: {sql_query[:100]}...")
+            result = sql_tool.run(sql_query)
+            return {
+                "sql_result": result,
+            }
+        except Exception as e:
+            logger.error(f"SQL execution error: {e}")
+            return {
+                "sql_result": f"❌ SQL execution failed: {str(e)}",
+            }
+
+    def result_explanation_node(self, state: AgentState) -> Dict[str, Any]:
+        """结果解释节点 - 用自然语言解释查询结果"""
+        logger.info("Explaining result")
+
+        if not state.get("sql_result"):
+            explanation = "No result to explain"
+        else:
+            # 构建解释提示词
+            prompt = self._build_explanation_prompt(state)
+
+            try:
+                explanation = self.llm.predict(prompt)
+            except Exception as e:
+                logger.error(f"Explanation generation error: {e}")
+                explanation = f"Result: {state.get('sql_result', '')}"
+
+        return {
+            "explanation": explanation,
+            "final_answer": explanation,  # 设置最终答案
+        }
+
     def tool_execution_node(self, state: AgentState) -> Dict[str, Any]:
         """执行工具"""
         # 从scratchpad解析出Action
@@ -340,6 +436,26 @@ class NodeManager:
 用户问题: {state['user_input']}{memory_str}
 
 返回: knowledge / data / hybrid"""
+        return prompt
+
+    def _build_explanation_prompt(self, state: AgentState) -> str:
+        """构建结果解释提示词"""
+        prompt = f"""基于以下信息，用自然语言解释查询结果：
+
+用户问题: {state['user_input']}
+
+查询结果: {state.get('sql_result', 'No result')}
+
+时间范围: {state.get('time_range', 'N/A')}
+
+澄清的术语: {state.get('clarified_terms', [])}
+
+请用中文总结：
+1. 查询理解 - 用户问题的核心
+2. 关键数据 - 最重要的数值或统计
+3. 业务解释 - 这些数据的含义
+
+简洁回答，不超过200字："""
         return prompt
 
     def _build_prompt(self, state: AgentState) -> str:
