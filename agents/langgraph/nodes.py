@@ -318,7 +318,7 @@ class NodeManager:
         }
 
     def main_query_node(self, state: AgentState) -> Dict[str, Any]:
-        """主查询节点 - 基于所有信息生成和执行SQL"""
+        """主查询节点 - 基于所有信息用LLM生成和执行SQL"""
         logger.info("Executing main query")
 
         sql_tool = self.tool_map.get("sql_query")
@@ -329,36 +329,73 @@ class NodeManager:
                 "error_message": "SQL tool not available"
             }
 
-        # 从scratchpad中期望的SQL（这里简化处理）
-        # 实际应该由前面的节点收集信息后，由LLM生成SQL
-        sql_query = None
+        # 构建包含所有上下文的SQL生成提示
+        schema_info = "\n".join([
+            f"表 '{table}': 字段 {fields}"
+            for table, fields in state.get("relevant_fields", {}).items()
+        ])
 
-        # 尝试从scratchpad中提取SQL查询
-        import re
-        sql_pattern = r"SELECT.*?(?:;|$)"
-        matches = re.finditer(sql_pattern, state["agent_scratchpad"], re.IGNORECASE | re.DOTALL)
-        for match in matches:
-            potential_sql = match.group(0).strip()
-            if potential_sql:
-                sql_query = potential_sql
-                break
+        field_samples_info = "\n".join([
+            f"- {field}: {samples}"
+            for field, samples in state.get("field_samples", {}).items()
+        ])
 
-        if not sql_query:
-            logger.warning("No SQL query found in scratchpad")
-            return {
-                "sql_result": "❌ No SQL query generated",
-            }
+        clarified_terms_info = "\n".join([
+            f"- {term_dict['term']}: {term_dict['meaning']}"
+            for term_dict in state.get("clarified_terms", [])
+        ])
+
+        sql_generation_prompt = f"""基于以下信息生成准确的SQL查询：
+
+用户需求: {state['user_input']}
+
+澄清的术语:
+{clarified_terms_info if clarified_terms_info else "无"}
+
+表结构:
+{schema_info if schema_info else "无相关表"}
+
+字段采样值（这些是实际存在的值）:
+{field_samples_info if field_samples_info else "无采样值"}
+
+时间范围:
+{state.get('time_range', '无时间限制')}
+
+SQL生成要求：
+✓ 明确指定SELECT的字段，禁止SELECT *
+✓ 字符串值加引号，时间值用YYYY-MM-DD格式
+✓ 根据采样值正确指定值（包括后缀等）
+✓ 优先使用澄清术语中确定的字段名和值
+✓ 只返回SQL语句，不要其他内容
+
+生成的SQL:"""
 
         try:
+            # 调用LLM生成SQL
+            logger.info("Generating SQL with LLM")
+            sql_query = self.llm.predict(sql_generation_prompt).strip()
+
+            if not sql_query:
+                logger.warning("LLM generated empty SQL")
+                return {
+                    "sql_result": "❌ LLM未生成SQL",
+                    "error_message": "LLM generation failed"
+                }
+
+            logger.info(f"Generated SQL: {sql_query[:100]}...")
+
+            # 执行SQL
             logger.info(f"Executing SQL: {sql_query[:100]}...")
             result = sql_tool.run(sql_query)
+
             return {
                 "sql_result": result,
             }
         except Exception as e:
-            logger.error(f"SQL execution error: {e}")
+            logger.error(f"SQL generation or execution error: {e}")
             return {
-                "sql_result": f"❌ SQL execution failed: {str(e)}",
+                "sql_result": f"❌ SQL执行失败: {str(e)}",
+                "error_message": str(e)
             }
 
     def result_explanation_node(self, state: AgentState) -> Dict[str, Any]:
