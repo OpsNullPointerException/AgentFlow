@@ -122,6 +122,119 @@ class NodeManager:
                 "iteration": state["iteration"],
             }
 
+    def time_check_node(self, state: AgentState) -> Dict[str, Any]:
+        """时间检查节点 - 检测和转换相对时间"""
+        logger.info("Checking for relative time references")
+
+        # 检查输入中是否有相对时间关键词
+        time_keywords = {"昨天", "今天", "明天", "上周", "这周", "下周", "上月", "这月", "下月",
+                         "近", "最近", "过去", "之前", "以后", "周年", "月份", "年"}
+        has_time_ref = any(kw in state['user_input'] for kw in time_keywords)
+
+        time_range = None
+        if has_time_ref:
+            # 尝试调用 convert_relative_time 工具
+            time_tool = self.tool_map.get("convert_relative_time")
+            if time_tool:
+                try:
+                    logger.info(f"Converting relative time from input: {state['user_input']}")
+                    result = time_tool.run(state['user_input'])
+                    # 假设result是JSON格式的 {"start_date": "...", "end_date": "..."}
+                    import json
+                    try:
+                        time_range = json.loads(result)
+                    except:
+                        time_range = {"raw_result": result}
+                except Exception as e:
+                    logger.warning(f"Time conversion failed: {e}")
+
+        return {
+            "time_range": time_range,
+        }
+
+    def schema_discovery_node(self, state: AgentState) -> Dict[str, Any]:
+        """架构发现节点 - 识别相关的表和字段"""
+        logger.info("Discovering relevant tables and fields")
+
+        # 获取 schema_query 工具
+        schema_tool = self.tool_map.get("schema_query")
+        if not schema_tool:
+            logger.warning("schema_query tool not found")
+            return {"relevant_tables": [], "relevant_fields": {}}
+
+        try:
+            # 首先获取所有表名
+            tables_result = schema_tool.run("tables")
+            # 简化处理：假设结果中包含表名（实际需要解析）
+            # 这里使用启发式方法：从输入和澄清的术语中推断表名
+
+            relevant_tables = []
+            relevant_fields = {}
+
+            # 从输入中推断可能的表名和字段
+            common_tables = ["users", "orders", "products", "customers", "sales", "transactions"]
+            for table in common_tables:
+                if table in state['user_input'].lower():
+                    relevant_tables.append(table)
+
+            # 对于每个相关的表，获取其字段信息
+            for table in relevant_tables:
+                try:
+                    fields_result = schema_tool.run(table)
+                    # 简化处理：假设返回逗号分隔的字段名
+                    fields = [f.strip() for f in fields_result.split(",") if f.strip()]
+                    relevant_fields[table] = fields
+                except Exception as e:
+                    logger.warning(f"Failed to get fields for {table}: {e}")
+
+            logger.info(f"Discovered tables: {relevant_tables}, fields: {relevant_fields}")
+
+            return {
+                "relevant_tables": relevant_tables,
+                "relevant_fields": relevant_fields,
+            }
+
+        except Exception as e:
+            logger.error(f"Schema discovery error: {e}")
+            return {"relevant_tables": [], "relevant_fields": {}}
+
+    def field_probing_node(self, state: AgentState) -> Dict[str, Any]:
+        """字段探测节点 - 采样字段实际值以避免盲目SQL"""
+        logger.info("Probing field values")
+
+        field_samples = {}
+        sql_tool = self.tool_map.get("sql_query")
+
+        if not sql_tool or not state.get("relevant_tables"):
+            logger.info("No tables to probe")
+            return {"field_samples": field_samples}
+
+        try:
+            # 对每个相关字段执行 SELECT DISTINCT LIMIT 10 探测
+            for table, fields in state.get("relevant_fields", {}).items():
+                for field in fields[:3]:  # 只探测前3个字段以节省时间
+                    try:
+                        # 构建探测SQL
+                        probe_sql = f"SELECT DISTINCT {field} FROM {table} LIMIT 10"
+                        logger.info(f"Probing: {probe_sql}")
+
+                        result = sql_tool.run(probe_sql)
+                        field_samples[f"{table}.{field}"] = result
+
+                    except Exception as e:
+                        logger.warning(f"Failed to probe {table}.{field}: {e}")
+                        # 继续探测其他字段
+
+            logger.info(f"Collected {len(field_samples)} field samples")
+
+            return {
+                "field_samples": field_samples,
+            }
+
+        except Exception as e:
+            logger.error(f"Field probing error: {e}")
+            return {"field_samples": field_samples}
+
     def tool_execution_node(self, state: AgentState) -> Dict[str, Any]:
         """执行工具"""
         # 从scratchpad解析出Action

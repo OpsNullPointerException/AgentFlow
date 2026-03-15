@@ -30,6 +30,9 @@ class AgentGraphBuilder:
         graph.add_node("input_processing", self.node_manager.process_input_node)
         graph.add_node("intent_detection", self.node_manager.intent_detection_node)
         graph.add_node("agent_loop", self.node_manager.agent_loop_node)
+        graph.add_node("time_check", self.node_manager.time_check_node)
+        graph.add_node("schema_discovery", self.node_manager.schema_discovery_node)
+        graph.add_node("field_probing", self.node_manager.field_probing_node)
         graph.add_node("tool_execution", self.node_manager.tool_execution_node)
         graph.add_node("evaluate", self.node_manager.evaluate_node)
         graph.add_node("final_answer", self.node_manager.final_answer_node)
@@ -37,6 +40,9 @@ class AgentGraphBuilder:
 
         # 定义边
         graph.add_edge("input_processing", "intent_detection")
+
+        # 意图检测后的条件路由
+        # 当前简化为总是进入 agent_loop（完整实现需要多路径路由）
         graph.add_edge("intent_detection", "agent_loop")
 
         # 条件边：Agent循环是否继续
