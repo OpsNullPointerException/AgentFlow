@@ -147,16 +147,16 @@ class AgentGraphBuilder:
             }
         )
 
-        # 错误恢复节点 - 决定重试哪个步骤
+        # 错误恢复节点 - 基于错误诊断决定重试策略
         graph.add_node("error_recovery", self.node_manager.error_recovery_node)
         graph.add_conditional_edges(
             "error_recovery",
             self._route_on_error_recovery,
             {
-                "retry_query": "main_query",           # 重新生成SQL
-                "retry_probe": "field_probing",        # 重新探测字段+生成SQL
-                "retry_schema": "schema_discovery",    # 重新发现schema+重新生成SQL
-                "give_up": "error_handler"             # 放弃，进入错误处理
+                "regenerate_sql": "main_query",           # 重新生成SQL
+                "reprobe_fields": "field_probing",        # 重新探测字段+生成SQL
+                "rediscover_schema": "schema_discovery",  # 重新发现schema+重新生成SQL
+                "give_up": "error_handler"                # 放弃，进入错误处理
             }
         )
 
@@ -246,25 +246,14 @@ class AgentGraphBuilder:
         return "failed"
 
     def _route_on_error_recovery(self, state: AgentState) -> str:
-        """错误恢复路由 - 决定重试的级别"""
-        retry_count = state.get("retry_count", 0)
-        error_message = state.get("error_message", "")
+        """错误恢复路由 - 基于诊断的重试策略"""
+        retry_strategy = state.get("retry_strategy", "give_up")
+        error_diagnosis = state.get("error_diagnosis")
 
-        logger.info(f"Error recovery: retry_count={retry_count}, error={error_message[:50]}")
+        logger.info(f"Error recovery routing: strategy={retry_strategy}, diagnosis={error_diagnosis}")
 
-        # 根据重试次数和错误类型决定重试策略
-        if retry_count == 0:
-            # 第一次失败：SQL可能有问题，重新生成SQL
-            logger.info("First retry: regenerating SQL query")
-            return "retry_query"
-        elif retry_count == 1:
-            # 第二次失败：字段采样可能不准，重新探测并生成
-            logger.info("Second retry: reprobe fields and regenerate SQL")
-            return "retry_probe"
-        else:
-            # 重试次数过多，给出错误
-            logger.warning("Max retries reached, giving up")
-            return "give_up"
+        # 直接使用error_recovery_node返回的策略
+        return retry_strategy
 
 
 def create_agent_graph(

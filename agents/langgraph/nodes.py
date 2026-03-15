@@ -497,7 +497,7 @@ SQL生成要求：
             }
 
     def evaluate_node(self, state: AgentState) -> Dict[str, Any]:
-        """评测执行结果"""
+        """评测执行结果 - 包括错误诊断"""
         logger.info("Evaluating execution result")
 
         try:
@@ -536,10 +536,43 @@ SQL生成要求：
 
             logger.info(f"Evaluation result: passed={eval_passed}, score={eval_score:.2f}")
 
+            # ========== 错误诊断逻辑 ==========
+            error_diagnosis = None
+            error_message = state.get("error_message", "")
+            sql_result = state.get("sql_result")
+            final_answer = state.get("final_answer", "")
+
+            if not eval_passed:
+                # 根据不同的失败症状诊断错误类型
+                if error_message:
+                    if any(keyword in error_message for keyword in ["语法", "syntax", "SQL", "错误的列"]):
+                        error_diagnosis = "syntax_error"
+                        logger.info("Diagnosed: syntax_error")
+                    elif any(keyword in error_message for keyword in ["字段", "column", "not exist"]):
+                        error_diagnosis = "field_not_exists"
+                        logger.info("Diagnosed: field_not_exists")
+                    elif any(keyword in error_message for keyword in ["超时", "timeout"]):
+                        error_diagnosis = "timeout"
+                        logger.info("Diagnosed: timeout")
+                    else:
+                        error_diagnosis = "unknown_error"
+                elif not sql_result or (isinstance(sql_result, str) and not sql_result.strip()):
+                    # SQL执行但无结果
+                    error_diagnosis = "no_results"
+                    logger.info("Diagnosed: no_results")
+                elif not final_answer or len(final_answer.strip()) < 10:
+                    # 最终答案太短或为空
+                    error_diagnosis = "invalid_answer"
+                    logger.info("Diagnosed: invalid_answer")
+                else:
+                    error_diagnosis = "evaluation_failed"
+                    logger.info("Diagnosed: evaluation_failed")
+
             return {
                 "evaluation_result": eval_result,
                 "eval_passed": eval_passed,
                 "eval_score": eval_score,
+                "error_diagnosis": error_diagnosis,
             }
 
         except ImportError:
@@ -552,6 +585,7 @@ SQL生成要求：
                 "evaluation_result": {"score": 0.8 if is_valid else 0.3, "passed": is_valid},
                 "eval_passed": is_valid,
                 "eval_score": 0.8 if is_valid else 0.3,
+                "error_diagnosis": None,
             }
         except Exception as e:
             logger.error(f"Evaluation error: {e}")
@@ -560,6 +594,7 @@ SQL生成要求：
                 "evaluation_result": {"score": 0.0, "passed": False},
                 "eval_passed": False,
                 "eval_score": 0.0,
+                "error_diagnosis": "evaluation_exception",
             }
 
     @staticmethod
@@ -571,18 +606,55 @@ SQL生成要求：
         return list(set(words))[:5]  # 最多5个唯一关键词
 
     def error_recovery_node(self, state: AgentState) -> Dict[str, Any]:
-        """错误恢复节点 - 根据错误信息决定重试策略"""
+        """错误恢复节点 - 基于错误诊断决定重试策略"""
         logger.info("Error recovery in progress")
 
         retry_count = state.get("retry_count", 0)
+        error_diagnosis = state.get("error_diagnosis")
         error_message = state.get("error_message", "")
-        eval_result = state.get("evaluation_result", {})
 
-        logger.info(f"Recovery: attempt {retry_count + 1}, error: {error_message[:100]}")
+        logger.info(f"Recovery: attempt {retry_count + 1}, diagnosis={error_diagnosis}, error: {error_message[:50]}")
 
-        # 更新retry_count
+        # 最多重试2次
+        if retry_count >= 2:
+            logger.warning("Max retry attempts reached, giving up")
+            return {
+                "retry_count": retry_count + 1,
+                "retry_strategy": "give_up",
+            }
+
+        # 根据诊断决定重试策略
+        strategy = "give_up"  # 默认放弃
+
+        if error_diagnosis == "syntax_error":
+            # SQL语法错误：重新生成SQL（使用新的LLM提示）
+            strategy = "regenerate_sql"
+            logger.info("Strategy: regenerate SQL due to syntax error")
+        elif error_diagnosis == "no_results":
+            # 查询无结果：可能字段值采样不准，重新探测
+            strategy = "reprobe_fields"
+            logger.info("Strategy: reprobe fields due to no results")
+        elif error_diagnosis == "field_not_exists":
+            # 字段不存在：可能表结构变了，重新发现schema
+            strategy = "rediscover_schema"
+            logger.info("Strategy: rediscover schema due to field not exists")
+        elif error_diagnosis == "timeout":
+            # 超时：放弃重试
+            strategy = "give_up"
+            logger.info("Strategy: give up due to timeout")
+        elif error_diagnosis == "invalid_answer":
+            # 最终答案无效：重新生成SQL
+            strategy = "regenerate_sql"
+            logger.info("Strategy: regenerate SQL due to invalid answer")
+        else:
+            # 其他诊断或未诊断：默认尝试重新生成SQL
+            strategy = "regenerate_sql"
+            logger.info(f"Strategy: regenerate SQL (default for diagnosis={error_diagnosis})")
+
         return {
             "retry_count": retry_count + 1,
+            "retry_strategy": strategy,
+            "error_diagnosis": error_diagnosis,  # 保留诊断信息
         }
 
     def final_answer_node(self, state: AgentState) -> Dict[str, Any]:
