@@ -21,36 +21,77 @@
         │ (启发式+LLM混合 → 3分类)        │
         └────────────┬───────────────────┘
                      │
-        ┌────────────┼────────────┐
-        │            │            │
-    knowledge      data        hybrid
-        │            │            │
-        ▼            ▼            ▼
-    ┌────────┐  ┌──────────┐  ┌──────────┐
-    │知识路径 │  │ 数据路径 │  │ 混合路径 │
-    └────────┘  └──────────┘  └──────────┘
+        ┌────────────────────────────┐
+        │ terminology_clarification  │ ⭐ 所有路径必经
+        │ (术语澄清)                  │   避免理解错误
+        └────────────┬───────────────┘
+                     │
+             是知识问题？
+             ╱          ╲
+            ╱            ╲
+           是              否(数据/混合)
+          ╱                ╲
+         ▼                  ▼
+    ┌─────────┐      ┌──────────────┐
+    │快速路径 │      │  数据路径    │
+    └─────────┘      └──────────────┘
+         │                 │
+         └────────┬────────┘
+                  ▼
+        result_explanation
+                  │
+                  ▼
+             evaluate_node
 ```
+
+**核心改进**: 所有查询都先走术语澄清，避免"销售额"vs"销售量"、"users"vs"customer"等理解错误
+
 
 ---
 
 ## 三条路径详细流程
 
-### 1️⃣ 知识路径 (Knowledge Path)
+### 统一的术语澄清阶段 (所有路径必经)
 
 ```
-intent_type = "knowledge"
+intent_detection (完成意图分类)
         │
         ▼
 ┌──────────────────────────────────────┐
-│ terminology_clarification_node       │
-│ - document_search工具查询术语        │
-│ - 返回clarified_terms               │
+│ terminology_clarification_node ⭐    │
+│ - 从user_input提取术语               │
+│ - document_search查询定义            │
+│ - 返回clarified_terms              │
+│ - 避免理解错误                       │
 └──────────────────┬───────────────────┘
                    │
-                   ▼
+         clarified_terms注入
+                   │
+          是知识问题？
+          ╱          ╲
+         是            否
+        ╱              ╲
+       ▼                ▼
+  快速路径            数据路径
+```
+
+**澄清的作用**：
+- ✅ 理解"销售额"=销售金额 vs "销售量"=销售数量
+- ✅ 理解"A厂商"=代码为A的供应商
+- ✅ 理解"用户"=customer表 vs "账户"=account表
+- ✅ 避免后续查询出现理解偏差
+
+---
+
+### 1️⃣ 知识路径 (Knowledge Path)
+
+```
+术语已澄清(clarified_terms)
+        │
+        ▼
 ┌──────────────────────────────────────┐
 │ result_explanation_node              │
-│ - LLM生成自然语言解释                 │
+│ - LLM基于澄清结果生成解释            │
 │ - 返回final_answer                   │
 └──────────────────┬───────────────────┘
                    │
@@ -64,16 +105,16 @@ intent_type = "knowledge"
         final_answer  error_handler
 ```
 
-**工具链**: document_search
+**工具链**: document_search (术语澄清中)
 **响应时间**: ~1.5s
-**特点**: 快速路径，不进行数据库操作
+**特点**: 澄清后直接解释，不进行数据库操作
 
 ---
 
 ### 2️⃣ 数据路径 (Data Path)
 
 ```
-intent_type = "data"
+术语已澄清(clarified_terms)
         │
         ▼
 ┌──────────────────────────────────────┐
@@ -86,8 +127,9 @@ intent_type = "data"
                    ▼
 ┌──────────────────────────────────────┐
 │ schema_discovery_node                │
-│ - schema_query工具查表结构            │
-│ - 返回relevant_tables/fields         │
+│ - 基于澄清结果查表结构               │
+│ - schema_query工具                   │
+│ - 返回relevant_tables/fields        │
 └──────────────────┬───────────────────┘
                    │
                    ▼
@@ -114,46 +156,45 @@ intent_type = "data"
 
 **工具链**: convert_relative_time → schema_query → sql_query(探测) → sql_query(主查询)
 **响应时间**: ~2.9s
-**特点**: 完整路径，包含字段采样确保SQL准确
+**特点**: 术语澄清后才查询，避免查询错误表/字段
 
 ---
 
 ### 3️⃣ 混合路径 (Hybrid Path)
 
 ```
-intent_type = "hybrid"
+术语已澄清(clarified_terms)
         │
         ▼
-┌──────────────────────────────────────┐
-│ terminology_clarification_node       │
-│ (先走知识澄清)                        │
-└──────────────────┬───────────────────┘
-                   │
-                   ▼
-┌──────────────────────────────────────┐
-│ time_check_node                      │
-│ (然后走数据路径)                      │
-└──────────────────┬───────────────────┘
-                   │
-                   ▼
-         schema_discovery_node
-                   │
-                   ▼
-         field_probing_node
-                   │
-                   ▼
-         main_query_node
-                   │
-                   ▼
-        result_explanation_node
-                   │
-                   ▼
-          evaluate_node
+      (数据路径完整流程)
+        │
+  time_check
+        │
+  schema_discovery
+        │
+  field_probing
+        │
+  main_query
+        │
+  result_explanation
+        │
+  evaluate_node
 ```
 
-**工具链**: document_search + 数据路径全工具
+**工具链**: document_search(澄清) + 数据路径全工具
 **响应时间**: ~3.4s
-**特点**: 结合知识澄清和数据查询
+**特点**: 知识澄清+数据查询结合，综合处理
+
+---
+
+## 新旧对比
+
+| 阶段 | 旧设计 | 新设计 |
+|------|--------|--------|
+| 术语澄清 | 仅知识路径 | ✅ 所有路径必经 |
+| 理解错误风险 | 高（数据路径跳过澄清） | ✅ 低（必经澄清） |
+| 知识问题速度 | 1.5s | 1.5s（不变） |
+| 数据问题准确性 | 中等（可能查错表） | ✅ 高（澄清后查询） |
 
 ---
 
@@ -245,45 +286,50 @@ intent_type = "hybrid"
 2. intent_detection
    ├─ 策略: 关键词评分(启发式) → LLM分类(备选)
    ├─ 输出: intent_type ∈ {knowledge, data, hybrid}
-   └─ 条件路由:
-       ├─ knowledge → terminology_clarification
-       ├─ data → time_check
-       └─ hybrid → terminology_clarification
+   └─ 下一步: terminology_clarification (所有路径)
 
-3-知识路径:
-3. terminology_clarification
+3. terminology_clarification ⭐ (必经节点)
    ├─ 工具: document_search
    ├─ 输出: clarified_terms
-   └─ 下一步: result_explanation
+   └─ 条件路由:
+       ├─ knowledge → result_explanation
+       └─ data/hybrid → time_check
 
-数据路径:
-3. time_check
-   ├─ 工具: convert_relative_time
-   ├─ 输出: time_range
-   └─ 下一步: schema_discovery
-
-4. schema_discovery
-   ├─ 工具: schema_query
-   ├─ 输出: relevant_tables, relevant_fields
-   └─ 下一步: field_probing
-
-5. field_probing (核心!)
-   ├─ 工具: sql_query (SELECT DISTINCT ... LIMIT 10)
-   ├─ 输出: field_samples
-   └─ 下一步: main_query
-
-6. main_query
-   ├─ 工具: sql_query (基于采样的准确SQL)
-   ├─ 输出: sql_result
-   └─ 下一步: result_explanation
-
-7. result_explanation
-   ├─ 输入: sql_result + user_input
+4-知识路径快速返回:
+4. result_explanation
+   ├─ 输入: clarified_terms + user_input
    ├─ LLM: 生成自然语言解释
    ├─ 输出: final_answer, explanation
    └─ 下一步: evaluate
 
-8. evaluate
+4-数据路径继续查询:
+4. time_check
+   ├─ 工具: convert_relative_time
+   ├─ 输出: time_range
+   └─ 下一步: schema_discovery
+
+5. schema_discovery
+   ├─ 工具: schema_query
+   ├─ 输出: relevant_tables, relevant_fields
+   └─ 下一步: field_probing
+
+6. field_probing (核心!)
+   ├─ 工具: sql_query (SELECT DISTINCT ... LIMIT 10)
+   ├─ 输出: field_samples
+   └─ 下一步: main_query
+
+7. main_query
+   ├─ 工具: sql_query (基于采样的准确SQL)
+   ├─ 输出: sql_result
+   └─ 下一步: result_explanation
+
+8. result_explanation
+   ├─ 输入: sql_result + clarified_terms + user_input
+   ├─ LLM: 生成综合解释
+   ├─ 输出: final_answer, explanation
+   └─ 下一步: evaluate
+
+9. evaluate
    ├─ 评测方式: RuleBasedEvaluator
    ├─ 输出: eval_score, eval_passed, evaluation_result
    ├─ 条件路由:
@@ -291,8 +337,8 @@ intent_type = "hybrid"
    │   ├─ 可重试 → agent_loop
    │   └─ failed → error_handler
 
-9. final_answer / error_handler
-   └─ END
+10. final_answer / error_handler
+    └─ END
 ```
 
 ---
