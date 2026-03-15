@@ -294,11 +294,22 @@ class NodeManager:
             terms = [t.strip() for t in response.split(',') if t.strip()]
             logger.info(f"Extracted terms for clarification: {terms}")
 
+            # 根据意图类型选择文档分类过滤
+            intent_type = state.get("intent_type", "data")
+            if intent_type == "knowledge":
+                # 知识路径：只查询公开文档
+                doc_category = "user"
+                logger.info("Using 'user' doc_category for knowledge path")
+            else:
+                # 数据路径/混合路径：查询内部文档（表结构、字段说明等）
+                doc_category = "internal"
+                logger.info("Using 'internal' doc_category for data/hybrid path")
+
             # 对每个术语用RAG查知识库
             for term in terms[:5]:  # 最多澄清5个术语
                 try:
-                    logger.info(f"Searching knowledge base for term: {term}")
-                    result = doc_search_tool.run(term)
+                    logger.info(f"Searching knowledge base for term: {term} (category={doc_category})")
+                    result = doc_search_tool.run(term, doc_category=doc_category)
                     if result:
                         clarified_terms.append({
                             "term": term,

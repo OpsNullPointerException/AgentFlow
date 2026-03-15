@@ -31,6 +31,7 @@ class RAGService:
         enable_rerank: bool = True,
         rerank_method: str = "llm_rerank",
         rerank_top_k: Optional[int] = None,
+        doc_category: Optional[str] = "user",
     ) -> RetrievalDocumentsOut:
         """
         检索与查询相关的文档，支持重排序
@@ -41,6 +42,7 @@ class RAGService:
             enable_rerank: 是否启用重排序
             rerank_method: 重排序方法
             rerank_top_k: 重排序后返回的文档数量
+            doc_category: 文档分类过滤 ("user"/"internal"/None表示不过滤)
 
         Returns:
             RetrievalDocumentsOut: 包含文档列表和重排序信息的schema对象
@@ -48,7 +50,8 @@ class RAGService:
         # 1. 初始向量检索 - 检索更多文档以便重排序
         initial_top_k = max(top_k * 2, 20) if enable_rerank else top_k
         documents = VectorDBService.search_static(
-            query, initial_top_k, embedding_model_version=self.embedding_model_version
+            query, initial_top_k, embedding_model_version=self.embedding_model_version,
+            doc_category=doc_category
         )
 
         rerank_info = {"rerank_enabled": enable_rerank, "rerank_method": None, "rerank_time": None}

@@ -14,6 +14,7 @@ class DocumentSearchInput(BaseModel):
     query: str = Field(..., description="搜索查询")
     top_k: int = Field(5, description="返回的文档数量")
     enable_rerank: bool = Field(True, description="是否启用重排序")
+    doc_category: str = Field("user", description="文档分类: user(公开) 或 internal(内部)")
 
 
 class DocumentSearchTool(BaseTool):
@@ -33,14 +34,15 @@ class DocumentSearchTool(BaseTool):
         query: str,
         top_k: int = 5,
         enable_rerank: bool = True,
+        doc_category: str = "user",
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> str:
-        """执行文档搜索"""
+        """执行文档搜索（支持分类过滤）"""
         try:
-            logger.info(f"Agent执行文档搜索: {query}")
+            logger.info(f"Agent执行文档搜索: {query} (category={doc_category})")
 
             retrieval_result = self.rag_service.retrieve_relevant_documents(
-                query=query, top_k=top_k, enable_rerank=enable_rerank
+                query=query, top_k=top_k, enable_rerank=enable_rerank, doc_category=doc_category
             )
 
             if not retrieval_result.documents:
