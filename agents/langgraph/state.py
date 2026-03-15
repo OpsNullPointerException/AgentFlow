@@ -51,8 +51,7 @@ class AgentState(TypedDict):
     memory_context: Optional[str]  # 记忆提取的上下文
 
     # 观察脱敏
-    observations: List[str]  # 原始观察
-    masked_observations: List[str]  # 脱敏后的观察
+    masked_observations: List[str]  # 脱敏后的观察（token节省：50-96%）
 
     # 元信息
     start_time: Optional[datetime]
@@ -111,7 +110,6 @@ def create_initial_state(
         "retry_count": 0,
         "chat_history": [],
         "memory_context": None,
-        "observations": [],
         "masked_observations": [],
         "start_time": datetime.now(),
         "end_time": None,

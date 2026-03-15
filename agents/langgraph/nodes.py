@@ -463,13 +463,12 @@ SQL生成要求：
                 duration=duration
             )
 
-            # 脱敏观察结果
+            # 脱敏观察结果（token节省：50-96%）
             masked_result = ObservationMasker.mask_observation(tool_name, result)
 
             return {
                 "current_tool": tool_name,
                 "tools_used": state["tools_used"] + [tool_name],
-                "observations": state["observations"] + [result],
                 "masked_observations": state["masked_observations"] + [masked_result],
                 "execution_steps": state["execution_steps"] + [step],
                 "agent_scratchpad": state["agent_scratchpad"] + f"Observation: {masked_result}\n",
