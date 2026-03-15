@@ -153,9 +153,10 @@ class AgentGraphBuilder:
             "error_recovery",
             self._route_on_error_recovery,
             {
-                "regenerate_sql": "main_query",           # 重新生成SQL
-                "reprobe_fields": "field_probing",        # 重新探测字段+生成SQL
-                "rediscover_schema": "schema_discovery",  # 重新发现schema+重新生成SQL
+                "regenerate_sql": "main_query",           # 数据路径：重新生成SQL
+                "reprobe_fields": "field_probing",        # 数据路径：重新探测字段+生成SQL
+                "rediscover_schema": "schema_discovery",  # 数据路径：重新发现schema+重新生成SQL
+                "requery_knowledge": "terminology_clarification", # 知识路径：重新查询知识库
                 "give_up": "error_handler"                # 放弃，进入错误处理
             }
         )

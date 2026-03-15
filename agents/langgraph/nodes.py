@@ -612,8 +612,9 @@ SQL生成要求：
         retry_count = state.get("retry_count", 0)
         error_diagnosis = state.get("error_diagnosis")
         error_message = state.get("error_message", "")
+        intent_type = state.get("intent_type")
 
-        logger.info(f"Recovery: attempt {retry_count + 1}, diagnosis={error_diagnosis}, error: {error_message[:50]}")
+        logger.info(f"Recovery: attempt {retry_count + 1}, diagnosis={error_diagnosis}, intent={intent_type}, error: {error_message[:50]}")
 
         # 最多重试2次
         if retry_count >= 2:
@@ -623,33 +624,58 @@ SQL生成要求：
                 "retry_strategy": "give_up",
             }
 
-        # 根据诊断决定重试策略
+        # 根据路径类型和诊断决定重试策略
         strategy = "give_up"  # 默认放弃
 
-        if error_diagnosis == "syntax_error":
-            # SQL语法错误：重新生成SQL（使用新的LLM提示）
-            strategy = "regenerate_sql"
-            logger.info("Strategy: regenerate SQL due to syntax error")
-        elif error_diagnosis == "no_results":
-            # 查询无结果：可能字段值采样不准，重新探测
-            strategy = "reprobe_fields"
-            logger.info("Strategy: reprobe fields due to no results")
-        elif error_diagnosis == "field_not_exists":
-            # 字段不存在：可能表结构变了，重新发现schema
-            strategy = "rediscover_schema"
-            logger.info("Strategy: rediscover schema due to field not exists")
-        elif error_diagnosis == "timeout":
-            # 超时：放弃重试
-            strategy = "give_up"
-            logger.info("Strategy: give up due to timeout")
-        elif error_diagnosis == "invalid_answer":
-            # 最终答案无效：重新生成SQL
-            strategy = "regenerate_sql"
-            logger.info("Strategy: regenerate SQL due to invalid answer")
+        # 知识路径的重试策略
+        if intent_type == "knowledge":
+            if error_diagnosis == "invalid_answer":
+                # 答案无效：重新查询知识库
+                strategy = "requery_knowledge"
+                logger.info("Strategy: requery knowledge due to invalid answer")
+            elif error_diagnosis == "evaluation_failed":
+                # 评测失败：重新查询知识库
+                strategy = "requery_knowledge"
+                logger.info("Strategy: requery knowledge due to evaluation failure")
+            elif error_diagnosis == "timeout":
+                # 超时：不重试
+                strategy = "give_up"
+                logger.info("Strategy: give up due to timeout")
+            else:
+                # 其他错误类型也尝试重新查询
+                strategy = "requery_knowledge"
+                logger.info(f"Strategy: requery knowledge (default for diagnosis={error_diagnosis})")
+
+        # 数据路径的重试策略
+        elif intent_type in ("data", "hybrid"):
+            if error_diagnosis == "syntax_error":
+                # SQL语法错误：重新生成SQL
+                strategy = "regenerate_sql"
+                logger.info("Strategy: regenerate SQL due to syntax error")
+            elif error_diagnosis == "no_results":
+                # 查询无结果：可能字段值采样不准，重新探测
+                strategy = "reprobe_fields"
+                logger.info("Strategy: reprobe fields due to no results")
+            elif error_diagnosis == "field_not_exists":
+                # 字段不存在：重新发现schema
+                strategy = "rediscover_schema"
+                logger.info("Strategy: rediscover schema due to field not exists")
+            elif error_diagnosis == "timeout":
+                # 超时：放弃重试
+                strategy = "give_up"
+                logger.info("Strategy: give up due to timeout")
+            elif error_diagnosis == "invalid_answer":
+                # 最终答案无效：重新生成SQL
+                strategy = "regenerate_sql"
+                logger.info("Strategy: regenerate SQL due to invalid answer")
+            else:
+                # 其他诊断：默认尝试重新生成SQL
+                strategy = "regenerate_sql"
+                logger.info(f"Strategy: regenerate SQL (default for diagnosis={error_diagnosis})")
         else:
-            # 其他诊断或未诊断：默认尝试重新生成SQL
-            strategy = "regenerate_sql"
-            logger.info(f"Strategy: regenerate SQL (default for diagnosis={error_diagnosis})")
+            # 意图类型未知：放弃重试
+            logger.warning(f"Unknown intent_type: {intent_type}, giving up")
+            strategy = "give_up"
 
         return {
             "retry_count": retry_count + 1,
