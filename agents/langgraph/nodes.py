@@ -8,6 +8,8 @@ from typing import Optional, Dict, Any, List
 from langchain_core.language_models import BaseLLM
 from langchain_core.tools import BaseTool
 
+from agents.services.smart_memory import SmartMemoryManager
+
 from .state import AgentState, ExecutionStep
 from agents.services.observation_masking import ObservationMasker
 
@@ -21,7 +23,7 @@ class NodeManager:
         self.llm = llm
         self.tools = tools
         self.tool_map = {tool.name: tool for tool in tools}
-        self.memory_manager = memory_manager
+        self.memory_manager:SmartMemoryManager = memory_manager
 
     def process_input_node(self, state: AgentState) -> Dict[str, Any]:
         """处理用户输入"""

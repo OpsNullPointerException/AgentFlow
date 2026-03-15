@@ -19,6 +19,7 @@ from agents.services.tools import ToolRegistry
 from qa.services.llm_service import LLMService
 from .observation_masking import ObservationMasker
 from .smart_memory import SmartMemoryManager
+from .execution_trace import ExecutionTrace
 from agents.langgraph import create_agent_graph, create_initial_state
 
 
@@ -267,6 +268,12 @@ class AgentService:
         try:
             start_time = time.time()
 
+            # 创建执行追踪
+            execution_trace = ExecutionTrace(
+                execution_id=f"exec_{int(start_time)}",
+                user_input=user_input
+            )
+
             # 创建初始状态
             state = create_initial_state(
                 user_input=user_input,
@@ -282,6 +289,24 @@ class AgentService:
             # 执行Agent图
             result_state = agent_graph.invoke(state)
 
+            # 记录最终答案到追踪
+            if result_state.get("final_answer"):
+                execution_trace.add_final_answer(result_state.get("final_answer", ""))
+
+            # 记录工具使用序列
+            for step in result_state.get("execution_steps", []):
+                if step.get("step_type") == "tool_call":
+                    execution_trace.add_tool_execution_start(
+                        tool_name=step.get("tool_name", "unknown"),
+                        tool_input={"input": step.get("tool_input", "")},
+                    )
+                    execution_trace.add_tool_execution_end(
+                        tool_name=step.get("tool_name", "unknown"),
+                        tool_output=step.get("tool_output", "")[:500],
+                        duration=step.get("duration", 0),
+                    )
+
+            execution_trace.finish()
             duration = time.time() - start_time
 
             return {
@@ -290,6 +315,7 @@ class AgentService:
                 "execution_steps": result_state.get("execution_steps", []),
                 "error_message": result_state.get("error_message", ""),
                 "execution_time": duration,
+                "execution_trace": execution_trace,
                 "memory": memory_manager,
             }
 
