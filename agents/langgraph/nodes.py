@@ -492,14 +492,16 @@ SQL生成要求：
         try:
             from agents.evaluation.rule_based_evaluator import RuleBasedEvaluator
 
-            # 创建模拟的执行记录对象供evaluator使用
-            class MockExecution:
+            # 直接使用state作为execution对象（不需要Mock）
+            # state中已包含所有必要的字段
+            class StateExecution:
+                """适配器：将AgentState转换为RuleBasedEvaluator期望的接口"""
                 def __init__(self, state):
                     self.user_input = state.get("user_input", "")
                     self.agent_output = state.get("final_answer", "")
                     self.tools_used = state.get("tools_used", [])
 
-            execution = MockExecution(state)
+            execution = StateExecution(state)
 
             # 构建测试用例（从user_input提取关键词）
             keywords = self._extract_keywords_from_input(state["user_input"])
