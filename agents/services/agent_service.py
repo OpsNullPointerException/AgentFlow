@@ -95,7 +95,22 @@ class AgentService:
 
             # 更新执行记录
             execution.agent_output = result_state.get("final_answer", "")
-            execution.execution_steps = result_state.get("execution_steps", []) or []
+
+            # 转换execution_steps为可序列化格式（处理datetime对象）
+            execution_steps = result_state.get("execution_steps", []) or []
+            serialized_steps = []
+            for step in execution_steps:
+                if isinstance(step, dict):
+                    # 转换datetime对象为ISO格式字符串
+                    serialized_step = {
+                        k: v.isoformat() if isinstance(v, datetime) else v
+                        for k, v in step.items()
+                    }
+                    serialized_steps.append(serialized_step)
+                else:
+                    serialized_steps.append(step)
+
+            execution.execution_steps = serialized_steps
             execution.tools_used = result_state.get("tools_used", [])
             execution.status = "completed"
             execution.execution_time = execution_time

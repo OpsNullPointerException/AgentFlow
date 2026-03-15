@@ -453,18 +453,20 @@ SQL生成要求：
             result = tool.run(tool_input)
             duration = time.time() - start
 
-            # 记录执行步骤
+            # 脱敏观察结果（token节省：50-96%）
+            masked_result = ObservationMasker.mask_observation(tool_name, result)
+
+            # 记录执行步骤（包含原始和脱敏版本用于追踪）
             step = ExecutionStep(
                 step_type="tool_call",
                 tool_name=tool_name,
                 tool_input=tool_input,
-                tool_output=result,
+                tool_output=result,  # 原始结果用于审计
                 timestamp=datetime.now(),
                 duration=duration
             )
-
-            # 脱敏观察结果（token节省：50-96%）
-            masked_result = ObservationMasker.mask_observation(tool_name, result)
+            # 添加脱敏版本用于追踪LLM输入
+            step["masked_output"] = masked_result
 
             return {
                 "current_tool": tool_name,
