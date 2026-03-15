@@ -88,21 +88,21 @@ class AgentGraphBuilder:
         # 定义边
         graph.add_edge("input_processing", "intent_detection")
 
-        # 意图检测后的条件路由 - 多路径智能流转
+        # 所有路径都先走术语澄清（避免理解错误）
+        graph.add_edge("intent_detection", "terminology_clarification")
+
+        # 术语澄清后的条件路由 - 根据意图类型决定是否继续查询
         graph.add_conditional_edges(
-            "intent_detection",
-            self._route_by_intent,
+            "terminology_clarification",
+            self._route_after_clarification,
             {
-                "knowledge": "terminology_clarification",
-                "data": "time_check",
-                "hybrid": "terminology_clarification",  # hybrid先走知识
+                "knowledge": "result_explanation",     # 知识问题：澄清后直接解释
+                "data": "time_check",                   # 数据问题：澄清后查询数据
+                "hybrid": "time_check",                 # 混合问题：澄清后查询数据
             }
         )
 
-        # 知识路径
-        graph.add_edge("terminology_clarification", "result_explanation")
-
-        # 数据路径的补充边（从terminology_clarification在hybrid情况下也能进入）
+        # 数据路径
         graph.add_edge("time_check", "schema_discovery")
         graph.add_edge("schema_discovery", "field_probing")
         graph.add_edge("field_probing", "main_query")
@@ -177,6 +177,18 @@ class AgentGraphBuilder:
         return compiled_graph
 
     # ============ 路由函数 ============
+
+    def _route_after_clarification(self, state: AgentState) -> str:
+        """术语澄清后的路由 - 决定是否继续查询数据"""
+        intent = state.get("intent_type", "data")
+        logger.info(f"Routing after clarification: {intent}")
+
+        if intent == "knowledge":
+            # 知识问题：澄清后直接解释，无需查询
+            return "knowledge"
+        else:
+            # 数据问题或混合问题：继续查询数据
+            return "data"
 
     def _route_by_intent(self, state: AgentState) -> str:
         """根据意图类型路由到不同的处理路径"""
