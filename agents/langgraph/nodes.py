@@ -262,7 +262,7 @@ class NodeManager:
             return {"field_samples": field_samples}
 
     def terminology_clarification_node(self, state: AgentState) -> Dict[str, Any]:
-        """术语澄清节点 - 使用知识库澄清中文术语和行业黑话"""
+        """术语澄清节点 - 使用RAG查知识库澄清中文术语和行业黑话"""
         logger.info("Clarifying terminology")
 
         clarified_terms = []
@@ -272,19 +272,41 @@ class NodeManager:
             logger.warning("document_search tool not found")
             return {"clarified_terms": clarified_terms}
 
-        # 提取可能需要澄清的术语（简单启发式）
-        chinese_patterns = ["A厂商", "B厂商", "供应商", "客户", "订单", "产品"]
-        for term in chinese_patterns:
-            if term in state['user_input']:
+        # 用LLM从用户输入中提取可能需要澄清的关键术语
+        extract_prompt = f"""从用户问题中提取所有可能需要澄清的关键术语和业务概念。
+这些术语可能是：
+- 中文业务术语（如"销售额"、"毛利率"）
+- 代码或缩写（如"A厂商"、"SKU"）
+- 状态值（如"已完成"、"待审核"）
+
+用户问题: {state['user_input']}
+
+只返回一个逗号分隔的术语列表，不要解释。如果没有需要澄清的术语，返回空。"""
+
+        try:
+            # 调用LLM提取术语
+            response = self.llm.predict(extract_prompt).strip()
+            if not response:
+                logger.info("No terms need clarification")
+                return {"clarified_terms": clarified_terms}
+
+            # 解析返回的术语列表
+            terms = [t.strip() for t in response.split(',') if t.strip()]
+            logger.info(f"Extracted terms for clarification: {terms}")
+
+            # 对每个术语用RAG查知识库
+            for term in terms[:5]:  # 最多澄清5个术语
                 try:
-                    logger.info(f"Searching for term: {term}")
+                    logger.info(f"Searching knowledge base for term: {term}")
                     result = doc_search_tool.run(term)
-                    clarified_terms.append({
-                        "term": term,
-                        "meaning": result
-                    })
+                    if result:
+                        clarified_terms.append({
+                            "term": term,
+                            "meaning": result
+                        })
+                        logger.info(f"Found clarification for '{term}'")
                 except Exception as e:
-                    logger.warning(f"Failed to clarify {term}: {e}")
+                    logger.warning(f"Failed to clarify '{term}': {e}")
 
         logger.info(f"Clarified {len(clarified_terms)} terms")
 
