@@ -7,11 +7,26 @@ import json
 from typing import Any, Dict, List, Optional, AsyncIterator
 from datetime import datetime
 
-from langchain.agents import AgentExecutor, create_react_agent, create_openai_functions_agent
-from langchain.agents.agent import AgentOutputParser
-from langchain.agents.react.base import ReActDocstoreAgent
-from langchain.agents.structured_chat.base import StructuredChatAgent
-from langchain.agents.conversational.base import ConversationalAgent
+# LangChain 1.x 兼容导入
+try:
+    from langchain_community.agent_toolkits import create_react_agent, create_openai_functions_agent
+    from langchain.agents import AgentExecutor
+    from langchain.agents.agent import AgentOutputParser
+except ImportError:
+    # 旧版本兼容
+    from langchain.agents import AgentExecutor, create_react_agent, create_openai_functions_agent
+    from langchain.agents.agent import AgentOutputParser
+
+try:
+    from langchain.agents.react.base import ReActDocstoreAgent
+    from langchain.agents.structured_chat.base import StructuredChatAgent
+    from langchain.agents.conversational.base import ConversationalAgent
+except ImportError:
+    # LangChain 1.x 已移除这些
+    ReActDocstoreAgent = None
+    StructuredChatAgent = None
+    ConversationalAgent = None
+
 from langchain.schema import AgentAction, AgentFinish
 from langchain.callbacks.base import BaseCallbackHandler
 from langchain_community.llms import Tongyi
