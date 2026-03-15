@@ -142,8 +142,21 @@ class AgentGraphBuilder:
             self._route_on_evaluation,
             {
                 "passed": "final_answer",
-                "retry": "agent_loop",
+                "retry": "error_recovery",
                 "failed": "error_handler"
+            }
+        )
+
+        # 错误恢复节点 - 决定重试哪个步骤
+        graph.add_node("error_recovery", self.node_manager.error_recovery_node)
+        graph.add_conditional_edges(
+            "error_recovery",
+            self._route_on_error_recovery,
+            {
+                "retry_query": "main_query",           # 重新生成SQL
+                "retry_probe": "field_probing",        # 重新探测字段+生成SQL
+                "retry_schema": "schema_discovery",    # 重新发现schema+重新生成SQL
+                "give_up": "error_handler"             # 放弃，进入错误处理
             }
         )
 
@@ -231,6 +244,27 @@ class AgentGraphBuilder:
 
         # 重试次数过多，返回失败
         return "failed"
+
+    def _route_on_error_recovery(self, state: AgentState) -> str:
+        """错误恢复路由 - 决定重试的级别"""
+        retry_count = state.get("retry_count", 0)
+        error_message = state.get("error_message", "")
+
+        logger.info(f"Error recovery: retry_count={retry_count}, error={error_message[:50]}")
+
+        # 根据重试次数和错误类型决定重试策略
+        if retry_count == 0:
+            # 第一次失败：SQL可能有问题，重新生成SQL
+            logger.info("First retry: regenerating SQL query")
+            return "retry_query"
+        elif retry_count == 1:
+            # 第二次失败：字段采样可能不准，重新探测并生成
+            logger.info("Second retry: reprobe fields and regenerate SQL")
+            return "retry_probe"
+        else:
+            # 重试次数过多，给出错误
+            logger.warning("Max retries reached, giving up")
+            return "give_up"
 
 
 def create_agent_graph(

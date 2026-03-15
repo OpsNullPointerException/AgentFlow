@@ -319,7 +319,7 @@ class NodeManager:
 
     def main_query_node(self, state: AgentState) -> Dict[str, Any]:
         """主查询节点 - 基于所有信息用LLM生成和执行SQL"""
-        logger.info("Executing main query")
+        logger.info(f"Executing main query (retry_count={state.get('retry_count', 0)})")
 
         sql_tool = self.tool_map.get("sql_query")
         if not sql_tool:
@@ -345,6 +345,11 @@ class NodeManager:
             for term_dict in state.get("clarified_terms", [])
         ])
 
+        # 如果是重试，包含之前的错误信息
+        retry_hint = ""
+        if state.get("retry_count", 0) > 0 and state.get("error_message"):
+            retry_hint = f"\n\n【之前的错误】\n{state['error_message'][:200]}\n请生成不同的SQL来避免这个错误。"
+
         sql_generation_prompt = f"""基于以下信息生成准确的SQL查询：
 
 用户需求: {state['user_input']}
@@ -359,7 +364,7 @@ class NodeManager:
 {field_samples_info if field_samples_info else "无采样值"}
 
 时间范围:
-{state.get('time_range', '无时间限制')}
+{state.get('time_range', '无时间限制')}{retry_hint}
 
 SQL生成要求：
 ✓ 明确指定SELECT的字段，禁止SELECT *
@@ -546,6 +551,21 @@ SQL生成要求：
         # 简单的关键词提取：长度>2的中文词或英文词
         words = re.findall(r'[\u4e00-\u9fff]{2,}|\b[a-z]{3,}\b', user_input.lower())
         return list(set(words))[:5]  # 最多5个唯一关键词
+
+    def error_recovery_node(self, state: AgentState) -> Dict[str, Any]:
+        """错误恢复节点 - 根据错误信息决定重试策略"""
+        logger.info("Error recovery in progress")
+
+        retry_count = state.get("retry_count", 0)
+        error_message = state.get("error_message", "")
+        eval_result = state.get("evaluation_result", {})
+
+        logger.info(f"Recovery: attempt {retry_count + 1}, error: {error_message[:100]}")
+
+        # 更新retry_count
+        return {
+            "retry_count": retry_count + 1,
+        }
 
     def final_answer_node(self, state: AgentState) -> Dict[str, Any]:
         """生成最终答案"""
