@@ -82,45 +82,45 @@ class NodeManager:
         """意图识别节点 - 分类用户查询为 knowledge/data/hybrid"""
         logger.info(f"Detecting intent for: {state['user_input']}")
 
-        # 构建意图识别提示词
-        prompt = self._build_intent_detection_prompt(state)
+        # 先用启发式方法快速判断（性能优先）
+        user_input = state['user_input']
 
-        try:
-            response = self.llm.predict(prompt).strip().lower()
+        # 关键词定义
+        data_keywords = {"查询", "统计", "SELECT", "表", "字段", "数据库", "数据", "SQL", "昨天", "上周", "销售", "金额"}
+        knowledge_keywords = {"什么是", "定义", "含义", "解释", "术语", "代表"}
 
-            # 解析LLM响应，应该返回 "knowledge"、"data" 或 "hybrid"
-            intent_type = "data"  # 默认为数据查询
-            if "knowledge" in response or "概念" in response or "定义" in response:
-                intent_type = "knowledge"
-            elif "hybrid" in response or "混合" in response:
-                intent_type = "hybrid"
-            elif "data" in response or "数据" in response or "查询" in response:
-                intent_type = "data"
-            else:
-                # 后备策略：基于关键词启发式判断
-                user_input_lower = state['user_input'].lower()
-                query_keywords = {"查询", "统计", "SELECT", "表", "字段", "数据库"}
-                knowledge_keywords = {"什么是", "定义", "含义", "解释", "术语"}
+        # 计算关键词匹配得分
+        data_score = sum(1 for kw in data_keywords if kw in user_input)
+        knowledge_score = sum(1 for kw in knowledge_keywords if kw in user_input)
 
-                if any(kw in state['user_input'] for kw in knowledge_keywords):
+        # 启发式判断
+        if knowledge_score > 0 and data_score == 0:
+            intent_type = "knowledge"
+        elif data_score > knowledge_score:
+            intent_type = "data"
+        elif data_score > 0 and knowledge_score > 0:
+            intent_type = "hybrid"
+        else:
+            # 如果启发式判断不确定，用LLM
+            prompt = self._build_intent_detection_prompt(state)
+            try:
+                response = self.llm.predict(prompt).strip().lower()
+                if "knowledge" in response or "概念" in response or "定义" in response:
                     intent_type = "knowledge"
-                elif any(kw in state['user_input'] for kw in query_keywords):
+                elif "hybrid" in response or "混合" in response:
+                    intent_type = "hybrid"
+                else:
                     intent_type = "data"
+            except Exception as e:
+                logger.error(f"LLM intent detection error: {e}")
+                intent_type = "data"  # 默认为数据查询
 
-            logger.info(f"Detected intent: {intent_type}")
+        logger.info(f"Detected intent: {intent_type} (data_score={data_score}, knowledge_score={knowledge_score})")
 
-            return {
-                "intent_type": intent_type,
-                "iteration": state["iteration"],
-            }
-
-        except Exception as e:
-            logger.error(f"Intent detection error: {e}")
-            # 默认为数据查询
-            return {
-                "intent_type": "data",
-                "iteration": state["iteration"],
-            }
+        return {
+            "intent_type": intent_type,
+            "iteration": state["iteration"],
+        }
 
     def time_check_node(self, state: AgentState) -> Dict[str, Any]:
         """时间检查节点 - 检测和转换相对时间"""
