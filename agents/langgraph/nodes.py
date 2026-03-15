@@ -305,6 +305,8 @@ class NodeManager:
                             "meaning": result
                         })
                         logger.info(f"Found clarification for '{term}'")
+                    else:
+                        logger.info(f"No RAG result for '{term}'")
                 except Exception as e:
                     logger.warning(f"Failed to clarify '{term}': {e}")
 
@@ -354,23 +356,25 @@ class NodeManager:
 
 用户需求: {state['user_input']}
 
-澄清的术语:
+【澄清的术语】(来自知识库/RAG的定义和映射)
 {clarified_terms_info if clarified_terms_info else "无"}
 
-表结构:
+【表结构】
 {schema_info if schema_info else "无相关表"}
 
-字段采样值（这些是实际存在的值）:
+【字段采样值】(这些是实际存在的数据)
 {field_samples_info if field_samples_info else "无采样值"}
 
-时间范围:
+【时间范围】
 {state.get('time_range', '无时间限制')}{retry_hint}
 
 SQL生成要求：
 ✓ 明确指定SELECT的字段，禁止SELECT *
-✓ 字符串值加引号，时间值用YYYY-MM-DD格式
-✓ 根据采样值正确指定值（包括后缀等）
-✓ 优先使用澄清术语中确定的字段名和值
+✓ 字符串值必须加引号，时间值用YYYY-MM-DD HH:MM:SS格式
+✓ 根据澄清术语中的代号、泛化语义正确指定值
+✓ 根据采样值确认值格式（包括后缀、大小写、符号等）
+✓ 优先使用澄清术语中确定的字段名和值映射
+✓ 字段值必须从采样值或澄清术语中选择，不要造出数据库中不存在的值
 ✓ 只返回SQL语句，不要其他内容
 
 生成的SQL:"""
