@@ -7,7 +7,8 @@ import json
 from typing import Any, Dict, List, Optional, AsyncIterator
 from datetime import datetime
 
-from langchain.agents import AgentExecutor, create_react_agent, create_openai_functions_agent
+from langchain.agents import create_react_agent, create_openai_functions_agent
+from langchain.agents.agent import AgentExecutor
 from langchain.agents.agent import AgentOutputParser
 from langchain.agents.react.base import ReActDocstoreAgent
 from langchain.agents.structured_chat.base import StructuredChatAgent
@@ -27,6 +28,8 @@ from qa.services.llm_service import LLMService
 from .execution_trace import ExecutionTrace
 from .observation_masking import ObservationMasker
 from .smart_memory import SmartMemoryManager
+from .executor_base import BaseAgentExecutor
+from .executor_langchain import LangChainAgentExecutor
 
 
 # ============== 默认系统提示词 ==============
@@ -267,8 +270,15 @@ class AgentCallbackHandler(ExecutionTrace, BaseCallbackHandler):
 class AgentService:
     """智能代理服务"""
 
-    def __init__(self):
+    def __init__(self, use_langgraph: bool = False):
+        """
+        初始化AgentService
+
+        Args:
+            use_langgraph: 是否使用LangGraph执行器（默认False使用LangChain）
+        """
         self.llm_service = LLMService()
+        self.use_langgraph = use_langgraph
 
     def _create_llm(self, agent_config: Agent):
         """创建LLM实例"""
@@ -378,8 +388,8 @@ class AgentService:
         agent_config: Agent,
         conversation_id: Optional[int] = None,
         callback_handler: Optional[AgentCallbackHandler] = None,
-    ) -> AgentExecutor:
-        """创建Agent执行器"""
+    ) -> BaseAgentExecutor:
+        """创建Agent执行器 - 返回BaseAgentExecutor接口"""
         try:
             # 创建LLM
             llm = self._create_llm(agent_config)
@@ -392,6 +402,21 @@ class AgentService:
 
             # 创建记忆
             memory = self._create_memory(agent_config, conversation_id)
+
+            # 如果选择使用LangGraph
+            if self.use_langgraph:
+                logger.info("使用LangGraph执行器")
+                from .executor_langgraph import LangGraphAgentExecutor
+                executor = LangGraphAgentExecutor(
+                    llm=llm,
+                    tools=tools,
+                    memory_manager=memory,
+                    agent_config=agent_config,
+                )
+                return executor
+
+            # 否则使用LangChain执行器（默认）
+            logger.info("使用LangChain执行器")
 
             # 创建回调管理器
             callbacks = []
@@ -436,7 +461,7 @@ class AgentService:
 
                 agent = create_react_agent(llm=llm, tools=tools, prompt=prompt)
 
-            # 创建AgentExecutor - 优化速度配置
+            # 创建LangChain AgentExecutor - 优化速度配置
             agent_executor = AgentExecutor(
                 agent=agent,
                 tools=tools,
@@ -449,7 +474,12 @@ class AgentService:
                 handle_parsing_errors=True,
             )
 
-            return agent_executor
+            # 包装为BaseAgentExecutor
+            return LangChainAgentExecutor(
+                agent_executor=agent_executor,
+                execution_trace=callback_handler,
+                agent_config=agent_config,
+            )
 
         except Exception as e:
             logger.error(f"创建Agent执行器失败: {e}")
@@ -485,24 +515,24 @@ class AgentService:
             logger.info(f"开始执行Agent {agent_id}: {user_input}")
 
             # 执行Agent
-            result = agent_executor.invoke({"input": user_input})
+            executor_result = agent_executor.invoke(user_input)
 
             # 计算执行时间
-            execution_time = time.time() - start_time
+            execution_time = executor_result.execution_time
 
             # 更新执行记录
-            execution.agent_output = result.get("output", "")
+            execution.agent_output = executor_result.output
             # 使用ExecutionTrace的详细追踪信息
             execution_trace = callback_handler.get_execution_trace()
-            execution.execution_steps = execution_trace.get_detailed_trace()
+            execution.execution_steps = executor_result.execution_steps or execution_trace.get_detailed_trace()
 
             # 提取工具使用列表
-            tool_sequence = execution_trace.get_tool_sequence()
-            execution.tools_used = list({step["tool"] for step in tool_sequence if step["tool"]})
+            execution.tools_used = executor_result.tools_used
 
             execution.status = "completed"
             execution.execution_time = execution_time
             execution.completed_at = datetime.now()
+            execution.error_message = executor_result.error_message or ""
 
             # 确保执行步骤是可序列化的
             try:
