@@ -28,6 +28,7 @@ class AgentGraphBuilder:
 
         # 添加节点
         graph.add_node("input_processing", self.node_manager.process_input_node)
+        graph.add_node("intent_detection", self.node_manager.intent_detection_node)
         graph.add_node("agent_loop", self.node_manager.agent_loop_node)
         graph.add_node("tool_execution", self.node_manager.tool_execution_node)
         graph.add_node("evaluate", self.node_manager.evaluate_node)
@@ -35,7 +36,8 @@ class AgentGraphBuilder:
         graph.add_node("error_handler", self.node_manager.error_handler_node)
 
         # 定义边
-        graph.add_edge("input_processing", "agent_loop")
+        graph.add_edge("input_processing", "intent_detection")
+        graph.add_edge("intent_detection", "agent_loop")
 
         # 条件边：Agent循环是否继续
         graph.add_conditional_edges(

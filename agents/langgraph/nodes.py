@@ -78,6 +78,50 @@ class NodeManager:
             "iteration": state["iteration"] + 1,
         }
 
+    def intent_detection_node(self, state: AgentState) -> Dict[str, Any]:
+        """意图识别节点 - 分类用户查询为 knowledge/data/hybrid"""
+        logger.info(f"Detecting intent for: {state['user_input']}")
+
+        # 构建意图识别提示词
+        prompt = self._build_intent_detection_prompt(state)
+
+        try:
+            response = self.llm.predict(prompt).strip().lower()
+
+            # 解析LLM响应，应该返回 "knowledge"、"data" 或 "hybrid"
+            intent_type = "data"  # 默认为数据查询
+            if "knowledge" in response or "概念" in response or "定义" in response:
+                intent_type = "knowledge"
+            elif "hybrid" in response or "混合" in response:
+                intent_type = "hybrid"
+            elif "data" in response or "数据" in response or "查询" in response:
+                intent_type = "data"
+            else:
+                # 后备策略：基于关键词启发式判断
+                user_input_lower = state['user_input'].lower()
+                query_keywords = {"查询", "统计", "SELECT", "表", "字段", "数据库"}
+                knowledge_keywords = {"什么是", "定义", "含义", "解释", "术语"}
+
+                if any(kw in state['user_input'] for kw in knowledge_keywords):
+                    intent_type = "knowledge"
+                elif any(kw in state['user_input'] for kw in query_keywords):
+                    intent_type = "data"
+
+            logger.info(f"Detected intent: {intent_type}")
+
+            return {
+                "intent_type": intent_type,
+                "iteration": state["iteration"],
+            }
+
+        except Exception as e:
+            logger.error(f"Intent detection error: {e}")
+            # 默认为数据查询
+            return {
+                "intent_type": "data",
+                "iteration": state["iteration"],
+            }
+
     def tool_execution_node(self, state: AgentState) -> Dict[str, Any]:
         """执行工具"""
         # 从scratchpad解析出Action
@@ -169,6 +213,21 @@ class NodeManager:
         }
 
     # ============ 辅助方法 ============
+
+    def _build_intent_detection_prompt(self, state: AgentState) -> str:
+        """构建意图识别提示词"""
+        memory_context = state.get("memory_context", "") or ""
+        memory_str = f"\n历史对话：\n{memory_context}" if memory_context else ""
+
+        prompt = f"""分类用户查询类型（只返回一个词）：
+- knowledge: 纯知识问题（概念、术语、规则解释）
+- data: 数据查询问题（涉及数据库、SQL、统计）
+- hybrid: 既需要知识澄清又需要数据查询
+
+用户问题: {state['user_input']}{memory_str}
+
+返回: knowledge / data / hybrid"""
+        return prompt
 
     def _build_prompt(self, state: AgentState) -> str:
         """构建Agent提示词"""
