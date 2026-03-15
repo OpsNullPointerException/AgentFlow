@@ -38,6 +38,64 @@ class ChunkingStrategy(ABC):
         return self.__class__.__name__.replace("ChunkingStrategy", "").lower()
 
 
+class AutoChunkingStrategy(ChunkingStrategy):
+    """自动分块策略：根据文本特征自动选择最优方法"""
+
+    def chunk_text(self, text: str, chunk_size: int, **kwargs) -> List[str]:
+        """自动选择最优分块方法并保留完整的标题链路"""
+        # 分析文本是否有结构
+        has_structure = self._has_document_structure(text)
+
+        # 调用factory的自动选择方法
+        strategy = ChunkingStrategyFactory.select_best_strategy(text)
+
+        # 获取分块结果
+        chunks = strategy.chunk_text(text, chunk_size, **kwargs)
+
+        # 仅对无结构文档添加文档标题前缀
+        # 有结构的文档由SemanticChunkingStrategy已处理，包含章节标题链路
+        if not has_structure:
+            doc_title = self._extract_doc_title(text)
+            if doc_title:
+                chunks = [f"{doc_title}\n\n{chunk}" for chunk in chunks]
+
+        return chunks
+
+    def _extract_doc_title(self, text: str) -> str:
+        """提取文档标题（识别结构化标题，或取第一个有意义的行）"""
+        lines = text.split("\n")
+
+        # 优先查找Markdown h1标题
+        for line in lines[:20]:
+            if re.match(r"^#\s+", line):
+                return line.replace("#", "").strip()
+
+        # 其次查找中文章节标题
+        for line in lines[:20]:
+            match = re.match(r"^第([一二三四五六七八九十百千万]+)[章部]", line)
+            if match:
+                return line.strip()
+
+        # 最后取第一个非空、非标记行
+        for line in lines:
+            line = line.strip()
+            if line and not any(line.startswith(p) for p in ["#", "---", "***", "===", "**", "--"]):
+                return line[:80]  # 限制长度
+
+        return ""
+
+    def _has_document_structure(self, text: str) -> bool:
+        """检查文本是否有明显结构"""
+        patterns = [
+            r"^#{1,6}\s+.+$",  # Markdown标题
+            r"^\d+\.\s+.+$",  # 数字编号
+            r"^第[一二三四五六七八九十百千万]+[章节篇]",  # 中文章节
+            r"^[A-Z][\.\)]\s+.+$",  # A. 形式
+        ]
+        header_count = sum(1 for line in text.split("\n")[:100] if any(re.match(p, line.strip()) for p in patterns))
+        return header_count >= 3
+
+
 class SimpleChunkingStrategy(ChunkingStrategy):
     """简单分块策略：在句子边界处断开文本"""
 
@@ -191,6 +249,9 @@ class SemanticChunkingStrategy(ChunkingStrategy):
         if not text:
             return chunks
 
+        # 提取文档标题前缀
+        doc_title = self._extract_doc_title(text)
+
         # 提取文档结构（标题、章节等）
         structure = self._extract_document_structure(text)
 
@@ -205,6 +266,8 @@ class SemanticChunkingStrategy(ChunkingStrategy):
                 if len(section_content) <= chunk_size:
                     prefix = "#" * section_level + " " if section_level else ""
                     chunk = f"{prefix}{section_title}\n\n{section_content}"
+                    if doc_title:
+                        chunk = f"{doc_title}\n\n{chunk}"
                     chunks.append(chunk)
                 else:
                     # 章节内容过大，需要分块
@@ -222,13 +285,39 @@ class SemanticChunkingStrategy(ChunkingStrategy):
                             chunk_title = section_title
 
                         chunk = f"{prefix}{chunk_title}\n\n{content}"
+                        if doc_title:
+                            chunk = f"{doc_title}\n\n{chunk}"
                         chunks.append(chunk)
         else:
             # 没有检测到结构，回退到段落分块
             paragraph_strategy = ParagraphChunkingStrategy()
             chunks = paragraph_strategy.chunk_text(text, chunk_size)
+            if doc_title:
+                chunks = [f"{doc_title}\n\n{chunk}" for chunk in chunks]
 
         return chunks
+
+    def _extract_doc_title(self, text: str) -> str:
+        """提取文档标题（识别结构化标题，或取第一个有意义的行）"""
+        lines = text.split("\n")
+
+        # 优先查找Markdown h1标题
+        for line in lines[:20]:
+            if re.match(r"^#\s+", line):
+                return line.replace("#", "").strip()
+
+        # 其次查找中文一级章节标题
+        for line in lines[:20]:
+            if re.match(r"^第([一二三四五六七八九十百千万]+)[章部]", line):
+                return line.strip()
+
+        # 最后取第一个非空、非标记行
+        for line in lines:
+            line = line.strip()
+            if line and not any(line.startswith(p) for p in ["#", "---", "***", "===", "**", "--", "##"]):
+                return line[:80]
+
+        return ""
 
     def _extract_document_structure(self, text: str) -> Dict[str, Any]:
         """从文本中提取结构信息（标题、章节等）"""
@@ -322,12 +411,13 @@ class ChunkingStrategyFactory:
     """分块策略工厂，负责创建合适的分块策略"""
 
     @staticmethod
-    def create_strategy(strategy_name: str) -> ChunkingStrategy:
+    def create_strategy(strategy_name: str = "auto") -> ChunkingStrategy:
         """
         创建指定的分块策略
 
         Args:
-            strategy_name: 策略名称 ("simple", "paragraph", "semantic", "auto")
+            strategy_name: 策略名称 ("simple", "paragraph", "semantic", "model", "auto")
+                          不指定或为"auto"时自动选择最优策略
 
         Returns:
             ChunkingStrategy: 分块策略实例
@@ -338,8 +428,10 @@ class ChunkingStrategyFactory:
             return SemanticChunkingStrategy()
         elif strategy_name == "model":
             return LocalModelChunkingStrategy()
-        else:  # "simple" 或默认
+        elif strategy_name == "simple":
             return SimpleChunkingStrategy()
+        else:  # "auto" 或默认
+            return AutoChunkingStrategy()
 
     @staticmethod
     def select_best_strategy(text: str) -> ChunkingStrategy:
