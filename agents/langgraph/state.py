@@ -77,6 +77,9 @@ class AgentState(TypedDict):
     sql_result: Optional[str]  # SQL查询结果
     explanation: Optional[str]  # 自然语言解释
 
+    # 执行追踪
+    execution_trace: Optional[Any]  # ExecutionTrace实例（用于详细追踪）
+
 
 def create_initial_state(
     user_input: str,

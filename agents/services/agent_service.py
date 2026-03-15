@@ -77,8 +77,8 @@ class AgentService:
                 logger.warning("没有可用工具，使用默认工具")
                 tools = [ToolRegistry.get_tool("document_search")]
 
-            # 直接执行LangGraph（记忆在input_processing_node中处理）
-            agent_graph = create_agent_graph(llm, tools, memory_manager=None, checkpointer_path=":memory:")
+            # 直接执行LangGraph
+            agent_graph = create_agent_graph(llm, tools, memory_manager=None)
             state = create_initial_state(
                 user_input=user_input,
                 user_id=str(user_id),

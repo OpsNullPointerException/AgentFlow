@@ -168,25 +168,48 @@ class NodeManager:
         try:
             # 首先获取所有表名
             tables_result = schema_tool.run("tables")
-            # 简化处理：假设结果中包含表名（实际需要解析）
-            # 这里使用启发式方法：从输入和澄清的术语中推断表名
 
             relevant_tables = []
             relevant_fields = {}
 
-            # 从输入中推断可能的表名和字段
-            common_tables = ["users", "orders", "products", "customers", "sales", "transactions"]
-            for table in common_tables:
-                if table in state['user_input'].lower():
+            # 解析表名结果（格式：可用的表:\n- table1\n- table2）
+            all_tables = []
+            if tables_result:
+                # 提取 "- " 开头的行
+                for line in tables_result.split('\n'):
+                    line = line.strip()
+                    if line.startswith('- '):
+                        table_name = line[2:].strip()
+                        if table_name:
+                            all_tables.append(table_name)
+
+            logger.info(f"Available tables from schema_query: {all_tables}")
+
+            # 从输入和澄清的术语中匹配相关表
+            clarified_terms = state.get('clarified_terms', [])
+            keywords = state['user_input'].lower()
+            for term_info in clarified_terms:
+                keywords += " " + term_info.get('term', '').lower()
+
+            for table in all_tables:
+                if table.lower() in keywords:
                     relevant_tables.append(table)
 
             # 对于每个相关的表，获取其字段信息
             for table in relevant_tables:
                 try:
                     fields_result = schema_tool.run(table)
-                    # 简化处理：假设返回逗号分隔的字段名
-                    fields = [f.strip() for f in fields_result.split(",") if f.strip()]
+                    # 解析字段结果（格式：表 'table' 的字段信息:\n- col1: type1 (NULL)\n- col2: type2 (NOT NULL)）
+                    fields = []
+                    for line in fields_result.split('\n'):
+                        line = line.strip()
+                        if line.startswith('- '):
+                            # 提取字段名（在 ':' 前）
+                            field_part = line[2:].split(':')[0].strip()
+                            if field_part:
+                                fields.append(field_part)
                     relevant_fields[table] = fields
+                    logger.info(f"Got {len(fields)} fields from table '{table}': {fields}")
                 except Exception as e:
                     logger.warning(f"Failed to get fields for {table}: {e}")
 

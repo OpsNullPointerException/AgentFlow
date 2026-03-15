@@ -64,7 +64,7 @@ class AgentGraphBuilder:
         self.memory_manager = memory_manager
         self.node_manager = NodeManager(llm, tools, memory_manager)
 
-    def build(self, checkpointer_path: str = ":memory:") -> object:
+    def build(self) -> object:
         """构建并返回编译后的图"""
 
         # 创建StateGraph
@@ -154,24 +154,13 @@ class AgentGraphBuilder:
         # 设置入口点
         graph.set_entry_point("input_processing")
 
-        # 创建Checkpointer
+        # 编译图（checkpointer目前仅支持MemorySaver）
         try:
-            if checkpointer_path == ":memory:":
-                from langgraph.checkpoint.memory import MemorySaver
-                checkpointer = MemorySaver()
-            else:
-                from langgraph.checkpoint.sqlite import SqliteSaver
-                checkpointer = SqliteSaver.from_conn_string(checkpointer_path)
-
-            # 编译图，传入checkpointer
+            from langgraph.checkpoint.memory import MemorySaver
+            checkpointer = MemorySaver()
             compiled_graph = graph.compile(checkpointer=checkpointer)
-        except ImportError as e:
-            logger.error(f"Failed to import checkpointer: {e}")
-            # Fallback: compile without checkpointer
-            compiled_graph = graph.compile()
         except Exception as e:
-            logger.error(f"Failed to create checkpointer: {e}")
-            # Fallback: compile without checkpointer
+            logger.warning(f"Checkpointer setup failed: {e}, compiling without checkpointer")
             compiled_graph = graph.compile()
 
         return compiled_graph
@@ -247,10 +236,9 @@ class AgentGraphBuilder:
 def create_agent_graph(
     llm: BaseLLM,
     tools: List[BaseTool],
-    memory_manager: Optional[object] = None,
-    checkpointer_path: str = ":memory:"
+    memory_manager: Optional[object] = None
 ) -> object:
     """便利函数：创建Agent图"""
 
     builder = AgentGraphBuilder(llm, tools, memory_manager)
-    return builder.build(checkpointer_path)
+    return builder.build()
