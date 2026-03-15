@@ -49,7 +49,7 @@ from typing import List, Optional
 from langchain_core.language_models import BaseLLM
 from langchain_core.tools import BaseTool
 from .state import AgentState
-from .nodes import NodeManager
+from .nodes import NodeManager, RetryConfig
 import logging
 
 logger = logging.getLogger(__name__)
@@ -234,7 +234,7 @@ class AgentGraphBuilder:
         return "loop"
 
     def _route_on_evaluation(self, state: AgentState) -> str:
-        """根据评测结果路由 - 考虑错误分类"""
+        """根据评测结果路由 - 考虑错误分类和重试配置"""
 
         if state["eval_passed"]:
             return "passed"
@@ -245,11 +245,14 @@ class AgentGraphBuilder:
             logger.info(f"Non-retryable error (permanent): {state.get('error_diagnosis')}")
             return "failed"  # 直接失败，不进入error_recovery
 
-        # 如果评测失败但还能重试，进入error_recovery
-        if state["retry_count"] < 2:
+        # 检查是否还有重试机会（基于RetryConfig.MAX_RETRIES）
+        retry_count = state.get("retry_count", 0)
+        if retry_count < RetryConfig.MAX_RETRIES:
+            logger.info(f"Retrying: {retry_count}/{RetryConfig.MAX_RETRIES} attempts")
             return "retry"
 
         # 重试次数过多，返回失败
+        logger.warning(f"Max retries reached ({RetryConfig.MAX_RETRIES}), giving up")
         return "failed"
 
     def _route_on_error_recovery(self, state: AgentState) -> str:

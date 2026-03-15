@@ -16,6 +16,49 @@ from agents.services.observation_masking import ObservationMasker
 logger = logging.getLogger(__name__)
 
 
+# ============ 重试策略配置 ============
+
+class RetryConfig:
+    """重试策略配置"""
+
+    # 基础重试次数限制
+    MAX_RETRIES = 3  # 改自2，允许更多重试机会
+
+    # 不同错误类型的重试延迟（秒）
+    # 用于在重试之前等待，避免频繁重复相同的错误
+    RETRY_DELAYS = {
+        "syntax_error": 0.0,        # SQL语法错误：无需延迟（通常是逻辑问题）
+        "field_not_exists": 0.0,    # 字段不存在：无需延迟（schema已变）
+        "no_results": 0.5,          # 无结果：稍微延迟后重试（可能是临时问题）
+        "invalid_answer": 0.0,      # 答案无效：无需延迟
+        "evaluation_failed": 1.0,   # 评测失败：延迟后重试（可能需要重新思考）
+        "timeout": 2.0,             # 超时：延迟较长（但不会重试，因为是permanent_error）
+        "permission_error": 0.0,    # 权限错误：不会重试
+    }
+
+    # 不同路径的重试优先级（影响出现问题时的处理顺序）
+    RETRY_PRIORITY = {
+        "knowledge": 1,  # 知识路径：优先级1（快速失败）
+        "data": 2,       # 数据路径：优先级2（重试策略更复杂）
+        "hybrid": 2,     # 混合路径：优先级2
+    }
+
+    @staticmethod
+    def get_retry_delay(error_diagnosis: str) -> float:
+        """获取错误类型对应的重试延迟时间（秒）"""
+        return RetryConfig.RETRY_DELAYS.get(error_diagnosis, 0.5)
+
+    @staticmethod
+    def should_retry(retry_count: int, error_category: str) -> bool:
+        """判断是否应该重试"""
+        # permanent_error不重试
+        if error_category == "permanent_error":
+            return False
+
+        # retryable_logic_error和temporary_error可以重试
+        return retry_count < RetryConfig.MAX_RETRIES
+
+
 class NodeManager:
     """管理所有Agent节点函数"""
 
@@ -646,23 +689,30 @@ SQL生成要求：
         return list(set(words))[:5]  # 最多5个唯一关键词
 
     def error_recovery_node(self, state: AgentState) -> Dict[str, Any]:
-        """错误恢复节点 - 基于错误诊断决定重试策略"""
+        """错误恢复节点 - 基于错误诊断决定重试策略和延迟"""
         logger.info("Error recovery in progress")
 
         retry_count = state.get("retry_count", 0)
         error_diagnosis = state.get("error_diagnosis")
         error_message = state.get("error_message", "")
         intent_type = state.get("intent_type")
+        error_category = state.get("error_category")
 
         logger.info(f"Recovery: attempt {retry_count + 1}, diagnosis={error_diagnosis}, intent={intent_type}, error: {error_message[:50]}")
 
-        # 最多重试2次
-        if retry_count >= 2:
-            logger.warning("Max retry attempts reached, giving up")
+        # 最多重试MAX_RETRIES次
+        if retry_count >= RetryConfig.MAX_RETRIES:
+            logger.warning(f"Max retry attempts ({RetryConfig.MAX_RETRIES}) reached, giving up")
             return {
                 "retry_count": retry_count + 1,
                 "retry_strategy": "give_up",
             }
+
+        # 根据错误诊断添加重试延迟（在进入重试前等待一段时间）
+        retry_delay = RetryConfig.get_retry_delay(error_diagnosis)
+        if retry_delay > 0:
+            logger.info(f"Waiting {retry_delay}s before retry to avoid repeated failures")
+            time.sleep(retry_delay)
 
         # 根据路径类型和诊断决定重试策略
         strategy = "give_up"  # 默认放弃
