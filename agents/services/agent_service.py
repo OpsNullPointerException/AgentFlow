@@ -15,7 +15,7 @@ from loguru import logger
 
 from ..models import Agent, AgentExecution, AgentMemory
 from ..schemas.agent import AgentExecutionOut, AgentStreamResponse
-from .tools import ToolRegistry
+from agents.services.tools import ToolRegistry
 from qa.services.llm_service import LLMService
 from .observation_masking import ObservationMasker
 from .smart_memory import SmartMemoryManager
