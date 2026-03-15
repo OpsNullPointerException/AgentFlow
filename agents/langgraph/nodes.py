@@ -516,15 +516,42 @@ SQL生成要求：
 
             # 构建测试用例（从user_input提取关键词）
             keywords = self._extract_keywords_from_input(state["user_input"])
-            test_case = {
-                "expected": {
-                    "keywords": keywords,
-                    "min_length": 10,
-                    "max_length": 5000,
-                    "should_NOT_contain": [],
-                    "expected_tools": state.get("tools_used", []),
+            intent_type = state.get("intent_type", "data")
+
+            # 根据路径类型调整评测参数（关键改进！）
+            if intent_type == "knowledge":
+                # 知识路径：答案可以很短（几句就够），不需要SQL工具，工具评分改为1.0
+                test_case = {
+                    "expected": {
+                        "keywords": keywords,
+                        "min_length": 5,      # 知识答案可以短（改自10）
+                        "max_length": 2000,   # 知识答案通常不超2000字（改自5000）
+                        "should_NOT_contain": [],
+                        "expected_tools": [],  # 知识路径不需要SQL工具
+                    }
                 }
-            }
+            elif intent_type in ("data", "hybrid"):
+                # 数据路径：需要完整的SQL查询结果
+                test_case = {
+                    "expected": {
+                        "keywords": keywords,
+                        "min_length": 10,
+                        "max_length": 5000,
+                        "should_NOT_contain": [],
+                        "expected_tools": state.get("tools_used", []),
+                    }
+                }
+            else:
+                # 未知路径：使用默认参数
+                test_case = {
+                    "expected": {
+                        "keywords": keywords,
+                        "min_length": 10,
+                        "max_length": 5000,
+                        "should_NOT_contain": [],
+                        "expected_tools": state.get("tools_used", []),
+                    }
+                }
 
             # 调用RuleBasedEvaluator
             evaluator = RuleBasedEvaluator()
@@ -534,7 +561,7 @@ SQL生成要求：
             eval_passed = eval_result.get("passed", False)
             eval_score = eval_result.get("score", 0.0)
 
-            logger.info(f"Evaluation result: passed={eval_passed}, score={eval_score:.2f}")
+            logger.info(f"Evaluation result: passed={eval_passed}, score={eval_score:.2f}, intent_type={intent_type}")
 
             # ========== 错误诊断逻辑 ==========
             error_diagnosis = None
