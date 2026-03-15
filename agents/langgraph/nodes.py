@@ -388,12 +388,73 @@ class NodeManager:
         """评测执行结果"""
         logger.info("Evaluating execution result")
 
-        # 返回简单的评测结果
-        return {
-            "evaluation_result": {"score": 0.8, "passed": True},
-            "eval_passed": True,
-            "eval_score": 0.8,
-        }
+        try:
+            from agents.evaluation.rule_based_evaluator import RuleBasedEvaluator
+
+            # 创建模拟的执行记录对象供evaluator使用
+            class MockExecution:
+                def __init__(self, state):
+                    self.user_input = state.get("user_input", "")
+                    self.agent_output = state.get("final_answer", "")
+                    self.tools_used = state.get("tools_used", [])
+
+            execution = MockExecution(state)
+
+            # 构建测试用例（从user_input提取关键词）
+            keywords = self._extract_keywords_from_input(state["user_input"])
+            test_case = {
+                "expected": {
+                    "keywords": keywords,
+                    "min_length": 10,
+                    "max_length": 5000,
+                    "should_NOT_contain": [],
+                    "expected_tools": state.get("tools_used", []),
+                }
+            }
+
+            # 调用RuleBasedEvaluator
+            evaluator = RuleBasedEvaluator()
+            eval_result = evaluator.evaluate(execution, test_case)
+
+            # 提取评测结果
+            eval_passed = eval_result.get("passed", False)
+            eval_score = eval_result.get("score", 0.0)
+
+            logger.info(f"Evaluation result: passed={eval_passed}, score={eval_score:.2f}")
+
+            return {
+                "evaluation_result": eval_result,
+                "eval_passed": eval_passed,
+                "eval_score": eval_score,
+            }
+
+        except ImportError:
+            logger.warning("RuleBasedEvaluator not available, using default evaluation")
+            # 如果evaluator不可用，使用简单的默认评测
+            final_answer = state.get("final_answer", "")
+            is_valid = len(final_answer) > 10 and len(final_answer) < 5000
+
+            return {
+                "evaluation_result": {"score": 0.8 if is_valid else 0.3, "passed": is_valid},
+                "eval_passed": is_valid,
+                "eval_score": 0.8 if is_valid else 0.3,
+            }
+        except Exception as e:
+            logger.error(f"Evaluation error: {e}")
+            # 评测失败时设置为不通过
+            return {
+                "evaluation_result": {"score": 0.0, "passed": False},
+                "eval_passed": False,
+                "eval_score": 0.0,
+            }
+
+    @staticmethod
+    def _extract_keywords_from_input(user_input: str) -> list:
+        """从用户输入中提取关键词"""
+        import re
+        # 简单的关键词提取：长度>2的中文词或英文词
+        words = re.findall(r'[\u4e00-\u9fff]{2,}|\b[a-z]{3,}\b', user_input.lower())
+        return list(set(words))[:5]  # 最多5个唯一关键词
 
     def final_answer_node(self, state: AgentState) -> Dict[str, Any]:
         """生成最终答案"""
