@@ -1,5 +1,5 @@
 """
-基于LangChain的智能代理服务
+基于LangGraph的智能代理服务
 """
 
 import time
@@ -7,14 +7,6 @@ import json
 from typing import Any, Dict, List, Optional, AsyncIterator
 from datetime import datetime
 
-from langchain.agents import create_react_agent, create_openai_functions_agent
-from langchain.agents.agent import AgentExecutor
-from langchain.agents.agent import AgentOutputParser
-from langchain.agents.react.base import ReActDocstoreAgent
-from langchain.agents.structured_chat.base import StructuredChatAgent
-from langchain.agents.conversational.base import ConversationalAgent
-from langchain.schema import AgentAction, AgentFinish
-from langchain.callbacks.base import BaseCallbackHandler
 from langchain_community.llms import Tongyi
 from django.conf import settings
 from django.utils import timezone
@@ -25,11 +17,10 @@ from ..models import Agent, AgentExecution, AgentMemory
 from ..schemas.agent import AgentExecutionOut, AgentStreamResponse
 from .tools import ToolRegistry
 from qa.services.llm_service import LLMService
-from .execution_trace import ExecutionTrace
 from .observation_masking import ObservationMasker
 from .smart_memory import SmartMemoryManager
 from .executor_base import BaseAgentExecutor
-from .executor_langchain import LangChainAgentExecutor
+from .executor_langgraph import LangGraphAgentExecutor
 
 
 # ============== 默认系统提示词 ==============
@@ -161,124 +152,12 @@ Question: {input}
 Thought:{agent_scratchpad}"""
 
 
-class AgentCallbackHandler(ExecutionTrace, BaseCallbackHandler):
-    """
-    Agent执行回调处理器 - 结合ExecutionTrace和LangChain回调
-
-    直接继承ExecutionTrace，既提供执行追踪功能，又实现LangChain的回调接口。
-    这样消除了ExecutionTrace和Handler的冗余，统一了事件记录。
-
-    支持的回调：
-    - on_agent_action(): Agent选择工具时触发
-    - on_agent_finish(): Agent完成推理时触发
-    - on_tool_start(): 工具开始执行时触发
-    - on_tool_end(): 工具完成执行时触发
-    - on_tool_error(): 工具执行出错时触发
-    """
-
-    def __init__(self, execution_id: str, agent_id: str = None, user_input: str = None):
-        # 初始化ExecutionTrace（父类）
-        ExecutionTrace.__init__(self, execution_id, agent_id, user_input)
-        # 初始化BaseCallbackHandler
-        BaseCallbackHandler.__init__(self)
-        # 追踪状态
-        self.current_tool = None
-        self.current_tool_start_time = None
-
-    def on_agent_action(self, action: AgentAction, **kwargs) -> None:
-        """Agent选择工具时的回调"""
-        logger.info(f"Agent选择工具: {action.tool}")
-        self.add_tool_selection_step(
-            candidates=list(kwargs.get("available_tools", [action.tool])),
-            selected=action.tool,
-            reasoning=str(action.tool_input),
-            metadata={"agent_action": True}
-        )
-        self.current_tool = action.tool
-
-    def on_agent_finish(self, finish: AgentFinish, **kwargs) -> None:
-        """Agent完成推理时的回调"""
-        logger.info(f"Agent完成推理")
-        output = finish.return_values.get("output", "")
-        self.add_final_answer(
-            answer=output,
-            metadata={"return_values": finish.return_values}
-        )
-        self.finish()
-
-    def on_tool_start(self, serialized: dict, input_str: str, **kwargs) -> None:
-        """工具开始执行时的回调"""
-        logger.info(f"工具开始执行: {self.current_tool}")
-        self.current_tool_start_time = time.time()
-        self.add_tool_execution_start(
-            tool_name=self.current_tool or "unknown",
-            tool_input={"input": input_str},
-            metadata={"serialized": serialized}
-        )
-
-    def on_tool_end(self, output: str, **kwargs) -> None:
-        """工具完成执行时的回调"""
-        logger.info(f"工具完成执行: {self.current_tool}")
-        duration = time.time() - self.current_tool_start_time if self.current_tool_start_time else 0
-
-        # 应用观察掩码压缩输出
-        masked_output = ObservationMasker.mask_observation(
-            self.current_tool or "unknown",
-            output,
-            max_length=500
-        )
-
-        # 记录压缩效果
-        if len(masked_output) < len(output):
-            ObservationMasker.estimate_token_reduction(
-                self.current_tool or "unknown",
-                output,
-                masked_output
-            )
-
-        # 记录工具执行结束（使用压缩后的输出）
-        self.add_tool_execution_end(
-            tool_name=self.current_tool or "unknown",
-            tool_output=masked_output,
-            duration=duration,
-            metadata={"output_length": len(masked_output), "original_length": len(output)}
-        )
-
-    def on_tool_error(self, error: Exception, **kwargs) -> None:
-        """工具执行出错时的回调"""
-        logger.error(f"工具执行出错: {str(error)}")
-        self.add_tool_error(
-            tool_name=self.current_tool or "unknown",
-            error=str(error),
-            metadata={"error_type": type(error).__name__}
-        )
-
-    # 导出方法保持兼容性
-    def get_execution_trace(self) -> "AgentCallbackHandler":
-        """返回自身（现在既是ExecutionTrace也是Handler）"""
-        return self
-
-    def get_trace_summary(self) -> dict:
-        """获取执行追踪摘要"""
-        return self.get_summary()
-
-    def get_trace_detailed(self) -> dict:
-        """获取执行追踪详情"""
-        return self.export(format="detailed")
-
-
 class AgentService:
-    """智能代理服务"""
+    """智能代理服务 - 基于LangGraph"""
 
-    def __init__(self, use_langgraph: bool = False):
-        """
-        初始化AgentService
-
-        Args:
-            use_langgraph: 是否使用LangGraph执行器（默认False使用LangChain）
-        """
+    def __init__(self):
+        """初始化AgentService"""
         self.llm_service = LLMService()
-        self.use_langgraph = use_langgraph
 
     def _create_llm(self, agent_config: Agent):
         """创建LLM实例"""
@@ -356,25 +235,20 @@ class AgentService:
         try:
             from ..models import AgentMemory
 
-            # 获取当前聊天历史
-            chat_history = []
-            if hasattr(memory, "chat_memory") and hasattr(memory.chat_memory, "messages"):
-                for msg in memory.chat_memory.messages:
-                    if hasattr(msg, "type"):
-                        chat_history.append({"type": msg.type, "content": msg.content})
-                    else:
-                        # 兼容不同的消息格式
-                        msg_type = "human" if "Human" in str(type(msg)) else "ai"
-                        chat_history.append(
-                            {"type": msg_type, "content": str(msg.content) if hasattr(msg, "content") else str(msg)}
-                        )
+            # SmartMemoryManager内置了记忆管理，这里仅作日志记录
+            stats = memory.get_stats()
 
-            # 更新或创建记忆记录
             memory_record, created = AgentMemory.objects.update_or_create(
                 agent_id=agent_id,
                 conversation_id=conversation_id,
                 memory_key="chat_history",
-                defaults={"user_id": user_id, "memory_data": {"messages": chat_history}},
+                defaults={
+                    "user_id": user_id,
+                    "memory_data": {
+                        "total_conversations": stats.get("total_conversations", 0),
+                        "total_users": stats.get("total_users", 0),
+                    }
+                },
             )
 
             action = "创建" if created else "更新"
@@ -387,9 +261,9 @@ class AgentService:
         self,
         agent_config: Agent,
         conversation_id: Optional[int] = None,
-        callback_handler: Optional[AgentCallbackHandler] = None,
+        callback_handler: Optional[Any] = None,
     ) -> BaseAgentExecutor:
-        """创建Agent执行器 - 返回BaseAgentExecutor接口"""
+        """创建Agent执行器 - 返回LangGraph执行器"""
         try:
             # 创建LLM
             llm = self._create_llm(agent_config)
@@ -403,83 +277,15 @@ class AgentService:
             # 创建记忆
             memory = self._create_memory(agent_config, conversation_id)
 
-            # 如果选择使用LangGraph
-            if self.use_langgraph:
-                logger.info("使用LangGraph执行器")
-                from .executor_langgraph import LangGraphAgentExecutor
-                executor = LangGraphAgentExecutor(
-                    llm=llm,
-                    tools=tools,
-                    memory_manager=memory,
-                    agent_config=agent_config,
-                )
-                return executor
-
-            # 否则使用LangChain执行器（默认）
-            logger.info("使用LangChain执行器")
-
-            # 创建回调管理器
-            callbacks = []
-            if callback_handler:
-                callbacks.append(callback_handler)
-
-            # 根据代理类型创建不同的Agent
-            if agent_config.agent_type == "react":
-                # ReAct Agent
-                from langchain import hub
-
-                prompt = hub.pull("hwchase17/react")
-                # 使用自定义 system_prompt 或默认 prompt
-                system_prompt = agent_config.system_prompt if agent_config.system_prompt else DEFAULT_SYSTEM_PROMPT
-                prompt.template = system_prompt + "\n\n" + prompt.template
-
-                agent = create_react_agent(llm=llm, tools=tools, prompt=prompt)
-
-            elif agent_config.agent_type == "openai_functions":
-                # OpenAI Functions Agent
-                from langchain import hub
-
-                prompt = hub.pull("hwchase17/openai-functions-agent")
-
-                agent = create_openai_functions_agent(llm=llm, tools=tools, prompt=prompt)
-
-            elif agent_config.agent_type == "structured_chat":
-                # Structured Chat Agent
-                agent = StructuredChatAgent.from_llm_and_tools(llm=llm, tools=tools, prefix=agent_config.system_prompt)
-
-            elif agent_config.agent_type == "conversational":
-                # Conversational Agent
-                agent = ConversationalAgent.from_llm_and_tools(llm=llm, tools=tools, prefix=agent_config.system_prompt)
-
-            else:
-                # 默认使用ReAct
-                from langchain import hub
-
-                prompt = hub.pull("hwchase17/react")
-                system_prompt = agent_config.system_prompt if agent_config.system_prompt else DEFAULT_SYSTEM_PROMPT
-                prompt.template = system_prompt + "\n\n" + prompt.template
-
-                agent = create_react_agent(llm=llm, tools=tools, prompt=prompt)
-
-            # 创建LangChain AgentExecutor - 优化速度配置
-            agent_executor = AgentExecutor(
-                agent=agent,
+            # 使用LangGraph执行器
+            logger.info("创建LangGraph执行器")
+            executor = LangGraphAgentExecutor(
+                llm=llm,
                 tools=tools,
-                memory=memory,
-                verbose=False,  # 关闭详细输出提高速度
-                max_iterations=10,  # 增加最大迭代次数，允许更复杂的推理
-                max_execution_time=120,  # 2分钟超时，给智能体更多时间
-                callbacks=callbacks,  # 直接传递callbacks列表
-                early_stopping_method="force",  # 使用支持的停止方法
-                handle_parsing_errors=True,
-            )
-
-            # 包装为BaseAgentExecutor
-            return LangChainAgentExecutor(
-                agent_executor=agent_executor,
-                execution_trace=callback_handler,
+                memory_manager=memory,
                 agent_config=agent_config,
             )
+            return executor
 
         except Exception as e:
             logger.error(f"创建Agent执行器失败: {e}")
@@ -506,11 +312,8 @@ class AgentService:
             )
             execution_id = str(execution.id)
 
-            # 创建回调处理器 - 传入agent_id和user_input用于ExecutionTrace
-            callback_handler = AgentCallbackHandler(execution_id, agent_id, user_input)
-
-            # 创建Agent执行器
-            agent_executor = self._create_agent_executor(agent_config, conversation_id, callback_handler)
+            # 创建Agent执行器（不需要回调处理器）
+            agent_executor = self._create_agent_executor(agent_config, conversation_id)
 
             logger.info(f"开始执行Agent {agent_id}: {user_input}")
 
@@ -518,15 +321,11 @@ class AgentService:
             executor_result = agent_executor.invoke(user_input)
 
             # 计算执行时间
-            execution_time = executor_result.execution_time
+            execution_time = time.time() - start_time
 
             # 更新执行记录
             execution.agent_output = executor_result.output
-            # 使用ExecutionTrace的详细追踪信息
-            execution_trace = callback_handler.get_execution_trace()
-            execution.execution_steps = executor_result.execution_steps or execution_trace.get_detailed_trace()
-
-            # 提取工具使用列表
+            execution.execution_steps = executor_result.execution_steps or []
             execution.tools_used = executor_result.tools_used
 
             execution.status = "completed"
@@ -536,18 +335,14 @@ class AgentService:
 
             # 确保执行步骤是可序列化的
             try:
-                import json
-
                 json.dumps(execution.execution_steps)  # 测试序列化
             except (TypeError, ValueError) as e:
-                logger.warning(f"执行步骤无法序列化，使用摘要版本: {e}")
-                # 使用执行追踪的摘要
-                summary = execution_trace.get_summary()
-                execution.execution_steps = [summary]
+                logger.warning(f"执行步骤无法序列化: {e}")
+                execution.execution_steps = []
 
             execution.save()
 
-            # 自动评测（如果test_case可用）
+            # 自动评测
             self._evaluate_execution(execution)
 
             # 保存记忆到数据库
