@@ -1,7 +1,7 @@
 """LangGraph Agent 状态定义"""
 
 from typing_extensions import TypedDict, Annotated
-from typing import Any, Optional, List
+from typing import Any, Optional, List, Dict
 from langchain_core.messages import BaseMessage
 from datetime import datetime
 
@@ -59,6 +59,24 @@ class AgentState(TypedDict):
     end_time: Optional[datetime]
     total_duration: float
 
+    # ========== 多路径路由相关字段 ==========
+
+    # 意图识别和路由
+    intent_type: Optional[str]  # "knowledge" / "data" / "hybrid" / None
+
+    # 知识路径字段
+    clarified_terms: List[Dict[str, str]]  # [{"term": "A厂商", "meaning": "..."}]
+
+    # 数据路径字段
+    time_range: Optional[Dict[str, str]]  # {"start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD"}
+    relevant_tables: List[str]  # 相关的数据库表名
+    relevant_fields: Dict[str, List[str]]  # {table_name: [field1, field2, ...]}
+    field_samples: Dict[str, List[Any]]  # {table.field: [sample1, sample2, ...]} 字段采样值
+
+    # 查询和结果
+    sql_result: Optional[str]  # SQL查询结果
+    explanation: Optional[str]  # 自然语言解释
+
 
 def create_initial_state(
     user_input: str,
@@ -95,4 +113,13 @@ def create_initial_state(
         "start_time": datetime.now(),
         "end_time": None,
         "total_duration": 0.0,
+        # 多路径路由字段初始化
+        "intent_type": None,
+        "clarified_terms": [],
+        "time_range": None,
+        "relevant_tables": [],
+        "relevant_fields": {},
+        "field_samples": {},
+        "sql_result": None,
+        "explanation": None,
     }
