@@ -234,26 +234,46 @@ class AgentGraphBuilder:
         return "loop"
 
     def _route_on_evaluation(self, state: AgentState) -> str:
-        """根据评测结果路由 - 考虑错误分类和重试配置"""
+        """根据评测结果路由 - 改进的重试决策逻辑
 
-        if state["eval_passed"]:
-            return "passed"
+        核心改进：
+        - 不再基于单一的eval_passed
+        - 而是综合考虑：分数 + 诊断信息 + 意图类型
+        - 目标：避免无效重试，节省token
+        """
 
-        # 检查错误分类：永久性错误不需要重试
+        # 提取信息
+        eval_score = state.get("eval_score", 0.0)
         error_category = state.get("error_category")
+        error_diagnosis = state.get("error_diagnosis")
+        intent_type = state.get("intent_type", "data")
         retry_count = state.get("retry_count", 0)
 
-        # 使用RetryConfig判断是否应该重试
-        if not RetryConfig.should_retry(retry_count, error_category):
-            if error_category == "permanent_error":
-                logger.info(f"Non-retryable error (permanent): {state.get('error_diagnosis')}")
-            else:
-                logger.warning(f"Max retries reached ({RetryConfig.MAX_RETRIES}), giving up")
+        # ========== 规则1：永久性错误不重试 ==========
+        if error_category == "permanent_error":
+            logger.warning(f"Non-retryable error: {error_diagnosis}, giving up")
             return "failed"
 
-        # 还有重试机会，进入error_recovery
-        logger.info(f"Retrying: {retry_count}/{RetryConfig.MAX_RETRIES} attempts")
-        return "retry"
+        # ========== 规则2：按路径类型的通过阈值 ==========
+        # 知识路径要求较低（65%），数据路径要求较高（75%）
+        if intent_type == "knowledge":
+            pass_threshold = 0.65
+        else:
+            pass_threshold = 0.75
+
+        # ========== 规则3：分数足够好就接受（不必完美） ==========
+        if eval_score >= pass_threshold:
+            logger.info(f"Score {eval_score:.2f} >= threshold {pass_threshold}, accepting answer")
+            return "passed"
+
+        # ========== 规则4：分数太低但还有重试机会 ==========
+        if retry_count < RetryConfig.MAX_RETRIES:
+            logger.info(f"Score {eval_score:.2f} < threshold {pass_threshold}, retrying {retry_count + 1}/{RetryConfig.MAX_RETRIES}")
+            return "retry"
+
+        # ========== 规则5：重试次数用尽 ==========
+        logger.warning(f"Max retries ({RetryConfig.MAX_RETRIES}) reached, score {eval_score:.2f}, giving up")
+        return "failed"
 
     def _route_on_error_recovery(self, state: AgentState) -> str:
         """错误恢复路由 - 基于诊断的重试策略"""

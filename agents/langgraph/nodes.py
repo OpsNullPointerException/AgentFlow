@@ -533,7 +533,7 @@ SQL生成要求：
             }
 
     def evaluate_node(self, state: AgentState) -> Dict[str, Any]:
-        """评测执行结果 - 包括错误诊断"""
+        """评测执行结果 - 按路径类型分别评测，返回诊断信息供重试决策使用"""
         logger.info("Evaluating execution result")
 
         try:
@@ -554,31 +554,23 @@ SQL生成要求：
             keywords = self._extract_keywords_from_input(state["user_input"])
             intent_type = state.get("intent_type", "data")
 
-            # 根据路径类型调整评测参数（关键改进！）
+            # ========== 改进：按路径类型分开评测标准 ==========
+            # 知识路径 vs 数据路径的通过标准和权重完全不同
             if intent_type == "knowledge":
-                # 知识路径：答案可以很短（几句就够），不需要SQL工具，工具评分改为1.0
+                # 知识路径：只需查到相关文档，答案可以简洁
                 test_case = {
                     "expected": {
                         "keywords": keywords,
-                        "min_length": 5,      # 知识答案可以短（改自10）
-                        "max_length": 2000,   # 知识答案通常不超2000字（改自5000）
+                        "min_length": 5,
+                        "max_length": 2000,
                         "should_NOT_contain": [],
-                        "expected_tools": [],  # 知识路径不需要SQL工具
+                        "expected_tools": [],
                     }
                 }
-            elif intent_type in ("data", "hybrid"):
-                # 数据路径：需要完整的SQL查询结果
-                test_case = {
-                    "expected": {
-                        "keywords": keywords,
-                        "min_length": 10,
-                        "max_length": 5000,
-                        "should_NOT_contain": [],
-                        "expected_tools": state.get("tools_used", []),
-                    }
-                }
+                # 知识路径用较低的通过阈值：65%（因为相关度就够了）
+                pass_threshold = 0.65
             else:
-                # 未知路径：使用默认参数
+                # 数据路径（data/hybrid）：需要准确的SQL查询结果
                 test_case = {
                     "expected": {
                         "keywords": keywords,
@@ -588,25 +580,31 @@ SQL生成要求：
                         "expected_tools": state.get("tools_used", []),
                     }
                 }
+                # 数据路径用标准阈值：75%（因为需要准确性）
+                pass_threshold = 0.75
 
             # 调用RuleBasedEvaluator
             evaluator = RuleBasedEvaluator()
             eval_result = evaluator.evaluate(execution, test_case)
 
             # 提取评测结果
-            eval_passed = eval_result.get("passed", False)
             eval_score = eval_result.get("score", 0.0)
 
-            logger.info(f"Evaluation result: passed={eval_passed}, score={eval_score:.2f}, intent_type={intent_type}")
+            # ========== 改进：不再用eval_passed，而是用诊断信息和分数双重判断 ==========
+            # eval_passed只表示规则通过，重试决策由_route_on_evaluation负责
+
+            logger.info(f"Evaluation: score={eval_score:.2f}, threshold={pass_threshold}, intent_type={intent_type}")
 
             # ========== 错误诊断逻辑 ==========
+            # 根据分数和诊断信息来判断是否需要诊断
             error_diagnosis = None
             error_category = None  # "retryable_logic_error" / "permanent_error" / "temporary_error"
             error_message = state.get("error_message", "")
             sql_result = state.get("sql_result")
             final_answer = state.get("final_answer", "")
 
-            if not eval_passed:
+            # 只在分数不够时才进行错误诊断
+            if eval_score < pass_threshold:
                 # 根据不同的失败症状诊断错误类型
                 if error_message:
                     if any(keyword in error_message for keyword in ["语法", "syntax", "SQL", "错误的列"]):
@@ -645,7 +643,6 @@ SQL生成要求：
 
             return {
                 "evaluation_result": eval_result,
-                "eval_passed": eval_passed,
                 "eval_score": eval_score,
                 "error_diagnosis": error_diagnosis,
                 "error_category": error_category,
@@ -659,18 +656,18 @@ SQL生成要求：
 
             return {
                 "evaluation_result": {"score": 0.8 if is_valid else 0.3, "passed": is_valid},
-                "eval_passed": is_valid,
                 "eval_score": 0.8 if is_valid else 0.3,
                 "error_diagnosis": None,
+                "error_category": None,
             }
         except Exception as e:
             logger.error(f"Evaluation error: {e}")
-            # 评测失败时设置为不通过
+            # 评测失败时返回低分
             return {
                 "evaluation_result": {"score": 0.0, "passed": False},
-                "eval_passed": False,
                 "eval_score": 0.0,
                 "error_diagnosis": "evaluation_exception",
+                "error_category": "permanent_error",
             }
 
     @staticmethod
