@@ -250,6 +250,117 @@ class SmartMemoryManager:
             "messages": self.get_messages(),
         }
 
+    def retrieve_relevant_memory(
+        self,
+        query: str,
+        top_k: int = 5,
+        max_context_tokens: int = 500
+    ) -> str:
+        """
+        检索相关记忆 - 智能压缩版
+
+        评分策略：
+        1. 关键词匹配相似度（基于query中的词）
+        2. importance * recency（已有）
+        3. 综合得分 = keyword_similarity * 0.5 + (importance * recency) * 0.5
+        4. 智能压缩：按分数逐条加入，直到达到token限制
+
+        Args:
+            query: 当前查询文本
+            top_k: 候选记忆数量
+            max_context_tokens: 返回上下文的最大token数（约500tokens=2000字符）
+
+        Returns:
+            格式化的历史对话字符串（受token限制的智能压缩版本）
+        """
+        if not self.messages:
+            return ""
+
+        # 计算每条消息的综合分数
+        now = datetime.now()
+        scored_messages = []
+
+        for msg in self.messages:
+            # 1. 计算recency分数
+            recency_score = MemoryImportance.score_by_recency(msg["timestamp"], now)
+
+            # 2. 计算importance * recency
+            importance_recency = msg["importance"] * recency_score
+
+            # 3. 计算关键词匹配相似度（简单版：检查query中的词是否出现在消息中）
+            query_words = set(query.lower().split())
+            msg_words = set(msg["content"].lower().split())
+
+            if query_words:
+                # 计算Jaccard相似度：交集 / 并集
+                intersection = len(query_words & msg_words)
+                union = len(query_words | msg_words)
+                keyword_similarity = intersection / union if union > 0 else 0.0
+            else:
+                keyword_similarity = 0.0
+
+            # 4. 综合得分 = 关键词相似度 * 0.5 + importance*recency * 0.5
+            combined_score = keyword_similarity * 0.5 + importance_recency * 0.5
+
+            scored_messages.append({
+                **msg,
+                "combined_score": combined_score
+            })
+
+        # 排序并逐条加入，直到达到token限制
+        scored_messages.sort(key=lambda x: x["combined_score"], reverse=True)
+
+        # 智能压缩：按分数逐条加入上下文，直到达到token限制
+        context_lines = ["【历史相关对话】"]
+        total_tokens = self._estimate_message_tokens(context_lines[0])
+        included_count = 0
+
+        for msg in scored_messages[:top_k]:
+            role = "用户" if msg["type"] == "human" else "助手"
+
+            # 计算当前消息的tokens
+            content = msg["content"]
+            msg_tokens = self._estimate_message_tokens(f"{role}: {content}")
+
+            # 如果加上这条消息会超过限制，进行压缩
+            if total_tokens + msg_tokens > max_context_tokens and included_count > 0:
+                # 尝试压缩消息内容
+                max_content_len = max(50, int((max_context_tokens - total_tokens) * 4))  # 4字符=1token
+                content = content[:max_content_len] + "..." if len(content) > max_content_len else content
+                msg_tokens = self._estimate_message_tokens(f"{role}: {content}")
+
+                if total_tokens + msg_tokens <= max_context_tokens:
+                    context_lines.append(f"{role}: {content}")
+                    total_tokens += msg_tokens
+                    included_count += 1
+                break  # 达到压缩限制
+            else:
+                # 截断过长的消息（但保留更长内容，直到token限制）
+                if len(content) > 300:
+                    content = content[:300] + "..."
+
+                context_lines.append(f"{role}: {content}")
+                total_tokens += msg_tokens
+                included_count += 1
+
+        # 如果有更多记忆但被压缩了，添加提示
+        if included_count < len(scored_messages):
+            context_lines.append(f"... (还有{len(scored_messages) - included_count}条历史记录)")
+
+        if included_count == 0:
+            return ""
+
+        return "\n".join(context_lines)
+
+    def get_stats(self) -> dict[str, Any]:
+        """获取记忆统计（兼容LangChain接口）"""
+        return {
+            "total_conversations": len(self.messages),
+            "total_users": 1,  # 简化：总是1
+            "total_messages": len(self.messages),
+            "total_tokens": self._estimate_tokens(),
+        }
+
     def clear(self):
         """清空所有消息"""
         self.messages = []

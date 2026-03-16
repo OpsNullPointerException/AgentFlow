@@ -6,11 +6,12 @@
 """
 
 from datetime import datetime, timedelta, date
-from typing import Optional, Dict, Any
-from pydantic import BaseModel, Field
-from langchain_core.tools import BaseTool
-from loguru import logger
+from typing import Optional, Dict, Any, Type
 import re
+from langchain.callbacks.manager import CallbackManagerForToolRun
+from langchain.tools import BaseTool
+from loguru import logger
+from pydantic import BaseModel, Field
 
 
 class TimeConversionInput(BaseModel):
@@ -52,7 +53,7 @@ class TimeConversionTool(BaseTool):
 }
 """
 
-    args_schema: type = TimeConversionInput
+    args_schema: Type[BaseModel] = TimeConversionInput
 
     def _parse_relative_time(
         self,
@@ -154,13 +155,11 @@ class TimeConversionTool(BaseTool):
             }
 
         if text in ["下月", "下一月", "下个月"]:
-            # 找到下个月的第一天
             if today.month == 12:
                 first_of_next_month = today.replace(year=today.year + 1, month=1, day=1)
             else:
                 first_of_next_month = today.replace(month=today.month + 1, day=1)
 
-            # 下个月最后一天
             if first_of_next_month.month == 12:
                 last_of_next_month = first_of_next_month.replace(year=first_of_next_month.year + 1, month=1, day=1) - timedelta(days=1)
             else:
@@ -232,7 +231,7 @@ class TimeConversionTool(BaseTool):
         self,
         relative_time: str,
         reference_date: Optional[str] = None,
-        run_manager=None
+        run_manager: Optional[CallbackManagerForToolRun] = None
     ) -> str:
         """执行相对时间转换"""
         try:
@@ -249,12 +248,3 @@ class TimeConversionTool(BaseTool):
         except Exception as e:
             logger.error(f"时间转换失败: {str(e)}")
             return f"时间转换失败: {str(e)}"
-
-    async def _arun(
-        self,
-        relative_time: str,
-        reference_date: Optional[str] = None,
-        run_manager=None
-    ) -> str:
-        """异步执行"""
-        return self._run(relative_time, reference_date, run_manager)

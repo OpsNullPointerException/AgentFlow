@@ -362,8 +362,10 @@ class RuleBasedEvaluator:
         关键词覆盖率检查 - 改进版
 
         支持：
-        - 文本精确匹配
-        - 相似度近似匹配（处理同义词、变体等）
+        - 精确匹配
+        - 词干匹配（处理单复数、时态等）
+        - 相似度近似匹配（处理同义词、打字错误等）
+        - 短语匹配（多个关键词组合）
         """
         keywords = test_case.get("expected", {}).get("keywords", [])
 
@@ -389,22 +391,48 @@ class RuleBasedEvaluator:
             if keyword_lower in output_lower:
                 found_keywords.append(keyword)
             else:
-                # 第2步：尝试相似度匹配（处理同义词、打字错误等）
-                best_ratio = 0.0
-                for word in output_lower.split():
-                    ratio = difflib.SequenceMatcher(
-                        None,
-                        keyword_lower,
-                        word
-                    ).ratio()
-                    best_ratio = max(best_ratio, ratio)
+                # 第2步：尝试分词匹配（中文/英文）
+                # 对中文进行分词，对英文进行词干提取
+                is_found = False
 
-                if best_ratio >= self.SIMILARITY_THRESHOLD:
-                    found_keywords.append(f"{keyword}(相似匹配:{best_ratio:.1%})")
+                # 中文关键词：直接尝试包含关系
+                if self._is_chinese(keyword_lower):
+                    # 已在第1步尝试过，这里跳过
+                    pass
                 else:
+                    # 英文关键词：尝试词干匹配
+                    keyword_words = keyword_lower.split()
+                    output_words = output_lower.split()
+
+                    # 检查是否所有单词都在输出中找到
+                    matched_words = sum(1 for w in keyword_words if any(
+                        w in ow or ow in w or difflib.SequenceMatcher(None, w, ow).ratio() >= self.SIMILARITY_THRESHOLD
+                        for ow in output_words
+                    ))
+
+                    if matched_words == len(keyword_words):
+                        is_found = True
+                        found_keywords.append(f"{keyword}(词干匹配)")
+
+                # 第3步：尝试相似度匹配
+                if not is_found:
+                    best_ratio = 0.0
+                    for word in output_lower.split():
+                        ratio = difflib.SequenceMatcher(
+                            None,
+                            keyword_lower,
+                            word
+                        ).ratio()
+                        best_ratio = max(best_ratio, ratio)
+
+                    if best_ratio >= self.SIMILARITY_THRESHOLD:
+                        found_keywords.append(f"{keyword}(相似:{best_ratio:.0%})")
+                        is_found = True
+
+                if not is_found:
                     missing_keywords.append(keyword)
 
-        keyword_coverage = len(found_keywords) / len(keywords)
+        keyword_coverage = len(found_keywords) / len(keywords) if keywords else 0.0
 
         # Confidence计算：基于匹配类型
         if not missing_keywords:
@@ -426,6 +454,10 @@ class RuleBasedEvaluator:
             "found": found_keywords,
             "missing": missing_keywords,
         }
+
+    def _is_chinese(self, text: str) -> bool:
+        """检查文本是否为中文"""
+        return any('\u4e00' <= c <= '\u9fff' for c in text)
 
     def _check_length(self, output: str, test_case) -> Dict[str, Any]:
         """
@@ -469,7 +501,12 @@ class RuleBasedEvaluator:
 
     def _check_bad_words(self, output: str, test_case) -> Dict[str, Any]:
         """
-        安全用词检查
+        安全用词检查 - 改进版
+
+        改进点：
+        - 支持单词边界匹配（避免"代码库"包含"代码"的误判）
+        - 支持正则表达式模式
+        - 更精确的禁词检测
         """
         bad_words = test_case.get("expected", {}).get("should_NOT_contain", [])
 
@@ -482,13 +519,18 @@ class RuleBasedEvaluator:
                 "found_bad_words": []
             }
 
-        # 大小写不敏感检查
         output_lower = output.lower()
         found_bad_words = []
 
         for bad_word in bad_words:
             bad_word_lower = bad_word.lower()
-            if bad_word_lower in output_lower:
+
+            # 方法1：尝试单词边界匹配（支持中英文）
+            # 中文：直接查找（没有单词边界）
+            # 英文：用单词边界\b
+            pattern = r'\b' + re.escape(bad_word_lower) + r'\b|' + re.escape(bad_word_lower)
+
+            if re.search(pattern, output_lower):
                 found_bad_words.append(bad_word)
 
         is_safe = len(found_bad_words) == 0

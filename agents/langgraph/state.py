@@ -1,7 +1,7 @@
 """LangGraph Agent 状态定义"""
 
 from typing_extensions import TypedDict, Annotated
-from typing import Any, Optional, List
+from typing import Any, Optional, List, Dict
 from langchain_core.messages import BaseMessage
 from datetime import datetime
 
@@ -44,20 +44,43 @@ class AgentState(TypedDict):
 
     # 错误和重试
     error_message: Optional[str]
+    error_diagnosis: Optional[str]  # 错误诊断: "syntax_error" / "no_results" / "field_not_exists" / "timeout" / "invalid_answer" / "evaluation_failed"
+    error_category: Optional[str]  # 错误分类: "retryable_logic_error" / "permanent_error" / "temporary_error"
     retry_count: int  # 重试次数
+    retry_strategy: Optional[str]  # 重试策略: "regenerate_sql" / "reprobe_fields" / "rediscover_schema" / "requery_knowledge" / "give_up"
 
     # 记忆和上下文
     chat_history: List[BaseMessage]  # 聊天历史
     memory_context: Optional[str]  # 记忆提取的上下文
 
     # 观察脱敏
-    observations: List[str]  # 原始观察
-    masked_observations: List[str]  # 脱敏后的观察
+    masked_observations: List[str]  # 脱敏后的观察（token节省：50-96%）
 
     # 元信息
     start_time: Optional[datetime]
     end_time: Optional[datetime]
     total_duration: float
+
+    # ========== 多路径路由相关字段 ==========
+
+    # 意图识别和路由
+    intent_type: Optional[str]  # "knowledge" / "data" / "hybrid" / None
+
+    # 知识路径字段
+    clarified_terms: List[Dict[str, str]]  # [{"term": "A厂商", "meaning": "..."}]
+
+    # 数据路径字段
+    time_range: Optional[Dict[str, str]]  # {"start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD"}
+    relevant_tables: List[str]  # 相关的数据库表名
+    relevant_fields: Dict[str, List[str]]  # {table_name: [field1, field2, ...]}
+    field_samples: Dict[str, List[Any]]  # {table.field: [sample1, sample2, ...]} 字段采样值
+
+    # 查询和结果
+    sql_result: Optional[str]  # SQL查询结果
+    explanation: Optional[str]  # 自然语言解释
+
+    # 执行追踪
+    execution_trace: Optional[Any]  # ExecutionTrace实例（用于详细追踪）
 
 
 def create_initial_state(
@@ -87,12 +110,23 @@ def create_initial_state(
         "eval_passed": False,
         "eval_score": 0.0,
         "error_message": None,
+        "error_diagnosis": None,
+        "error_category": None,
         "retry_count": 0,
+        "retry_strategy": None,
         "chat_history": [],
         "memory_context": None,
-        "observations": [],
         "masked_observations": [],
         "start_time": datetime.now(),
         "end_time": None,
         "total_duration": 0.0,
+        # 多路径路由字段初始化
+        "intent_type": None,
+        "clarified_terms": [],
+        "time_range": None,
+        "relevant_tables": [],
+        "relevant_fields": {},
+        "field_samples": {},
+        "sql_result": None,
+        "explanation": None,
     }
