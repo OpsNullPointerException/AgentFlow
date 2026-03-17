@@ -752,7 +752,7 @@ SQL生成要求：
         intent_type = state.get("intent_type")
         error_category = state.get("error_category")
 
-        logger.info(f"Recovery: attempt {retry_count + 1}, diagnosis={error_diagnosis}, intent={intent_type}, error: {error_message[:50]}")
+        logger.info(f"Recovery: attempt {retry_count + 1}, diagnosis={error_diagnosis}, intent={intent_type}, error: {(error_message or '')[:50]}")
 
         # 最多重试MAX_RETRIES次
         if retry_count >= RetryConfig.MAX_RETRIES:
