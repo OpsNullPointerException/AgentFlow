@@ -48,6 +48,7 @@ from langgraph.graph import StateGraph, END
 from typing import List, Optional
 from langchain_core.language_models import BaseLLM
 from langchain_core.tools import BaseTool
+from langgraph.prebuilt import ToolNode, tools_condition  # ✅ Phase 5: Import ToolNode
 from .state import AgentState
 from .nodes import NodeManager, RetryConfig
 import logging
@@ -65,7 +66,7 @@ class AgentGraphBuilder:
         self.node_manager = NodeManager(llm, tools, memory_manager)
 
     def build(self) -> object:
-        """构建并返回编译后的图"""
+        """构建并返回编译后的图 - ✅ Phase 5: 使用LangGraph ToolNode"""
 
         # 创建StateGraph
         graph = StateGraph(AgentState)
@@ -80,7 +81,8 @@ class AgentGraphBuilder:
         graph.add_node("terminology_clarification", self.node_manager.terminology_clarification_node)
         graph.add_node("main_query", self.node_manager.main_query_node)
         graph.add_node("result_explanation", self.node_manager.result_explanation_node)
-        graph.add_node("tool_execution", self.node_manager.tool_execution_node)
+        # ✅ Phase 5: Replace tool_execution_node with LangGraph ToolNode
+        graph.add_node("tools", ToolNode(self.tools))
         graph.add_node("evaluate", self.node_manager.evaluate_node)
         graph.add_node("final_answer", self.node_manager.final_answer_node)
         graph.add_node("error_handler", self.node_manager.error_handler_node)
@@ -92,13 +94,15 @@ class AgentGraphBuilder:
         graph.add_edge("intent_detection", "terminology_clarification")
 
         # 术语澄清后的条件路由 - 根据意图类型决定是否继续查询
+        # Option A: 知识路径直接进行术语澄清→解释（不需要redundant search）
+        # 数据路径继续进行SQL查询
         graph.add_conditional_edges(
             "terminology_clarification",
             self._route_after_clarification,
             {
-                "knowledge": "result_explanation",     # 知识问题：澄清后直接解释
-                "data": "time_check",                   # 数据问题：澄清后查询数据
-                "hybrid": "time_check",                 # 混合问题：澄清后查询数据
+                "knowledge": "result_explanation",     # 知识问题：术语澄清后直接解释结果
+                "data": "time_check",                   # 数据问题：术语澄清后继续查询数据
+                "hybrid": "time_check",                 # 混合问题：先澄清术语再查询数据
             }
         )
 
@@ -108,33 +112,21 @@ class AgentGraphBuilder:
         graph.add_edge("field_probing", "main_query")
         graph.add_edge("main_query", "result_explanation")
 
-        # 从terminology_clarification对于hybrid路径继续到数据路径
-        # 这通过result_explanation节点的后处理或通过额外的条件边实现
-        # 当前简化：都通过result_explanation到evaluate
-
         # 所有查询路径都进入结果解释和评测
         graph.add_edge("result_explanation", "evaluate")
 
-        # 条件边：Agent循环是否继续
+        # ✅ Phase 5: 新的条件路由 - 使用tools_condition检查tool_calls
         graph.add_conditional_edges(
             "agent_loop",
-            self._should_continue_loop,
+            tools_condition,  # 自动检查是否有tool_calls
             {
-                "continue": "tool_execution",
-                "finish": "evaluate"
+                "tools": "tools",        # 有tool_calls → 执行工具
+                "__end__": "evaluate"    # 无tool_calls → 评测结果
             }
         )
 
-        # 工具执行后的条件边
-        graph.add_conditional_edges(
-            "tool_execution",
-            self._handle_tool_execution,
-            {
-                "loop": "agent_loop",
-                "error": "error_handler",
-                "finish": "evaluate"
-            }
-        )
+        # ✅ Phase 5: 工具执行后回到agent继续推理
+        graph.add_edge("tools", "agent_loop")
 
         # 评测后的条件边
         graph.add_conditional_edges(
