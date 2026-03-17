@@ -61,6 +61,10 @@ class NodeManager:
         self.tool_map = {tool.name: tool for tool in tools}
         self.memory_manager:SmartMemoryManager = memory_manager
 
+        # ✅ Phase 5: bind_tools - LLM now knows about tools and outputs structured tool_calls
+        self.model_with_tools = llm.bind_tools(tools)
+        logger.info(f"✓ Bound {len(tools)} tools to LLM - using LangGraph ToolNode pattern")
+
     def process_input_node(self, state: AgentState) -> Dict[str, Any]:
         """处理用户输入"""
         logger.info(f"Processing input for user {state['user_id']}: {state['user_input']}")
@@ -84,38 +88,76 @@ class NodeManager:
         }
 
     def agent_loop_node(self, state: AgentState) -> Dict[str, Any]:
-        """Agent推理步骤"""
-        if state["iteration"] > 0:
-            logger.info(f"Agent loop iteration {state['iteration']}")
+        """✅ Phase 5: Agent推理 - 使用model_with_tools输出structured tool_calls"""
+        logger.info(f"Agent loop iteration {state['iteration']} (using model_with_tools)")
 
-        # 构建Prompt
-        prompt = self._build_prompt(state)
+        # 构建提示
+        system_prompt = self._build_system_prompt(state)
 
-        # 调用LLM
+        # 构建消息列表（使用BaseMessage格式，兼容LangGraph）
+        from langchain_core.messages import HumanMessage
+        messages = [
+            HumanMessage(content=system_prompt),
+        ] + state.get("messages", [])
+
+        # ✅ 关键改动：使用model_with_tools替代llm.predict()
+        # model_with_tools输出AIMessage with tool_calls（不是文本）
         try:
-            response = self.llm.predict(prompt)
+            response = self.model_with_tools.invoke(messages)
+            logger.info(f"LLM response: {len(response.content) if response.content else 0} chars, "
+                       f"tool_calls={len(response.tool_calls) if hasattr(response, 'tool_calls') and response.tool_calls else 0}")
         except Exception as e:
             logger.error(f"LLM prediction error: {e}")
-            response = "I encountered an error while thinking about this problem."
-
-        # 更新scratchpad
-        new_scratchpad = state["agent_scratchpad"] + response + "\n"
+            from langchain_core.messages import AIMessage
+            response = AIMessage(content=f"I encountered an error: {str(e)}")
 
         # 记录执行步骤
         step = ExecutionStep(
-            step_type="thought",
+            step_type="model_call",
             tool_name=None,
             tool_input=None,
-            tool_output=None,
+            tool_output=response.content,
             timestamp=datetime.now(),
             duration=0.0
         )
 
+        # ✅ 返回值：添加messages而非更新scratchpad
+        # ToolNode会自动处理tool_calls
         return {
-            "agent_scratchpad": new_scratchpad,
+            "messages": state.get("messages", []) + [response],
             "execution_steps": state["execution_steps"] + [step],
             "iteration": state["iteration"] + 1,
         }
+
+    def _build_system_prompt(self, state: AgentState) -> str:
+        """构建系统提示 - LLM已知道可用工具（通过bind_tools）"""
+        intent = state.get("intent_type", "unknown")
+
+        if intent == "knowledge":
+            clarified = state.get("clarified_terms", [])
+            return f"""You are a knowledge assistant.
+
+User question: {state['user_input']}
+Clarified terms: {clarified}
+
+Use the available tools to find relevant knowledge."""
+
+        elif intent == "data":
+            tables = state.get("relevant_tables", [])
+            time_range = state.get("time_range")
+            return f"""You are a data analysis assistant.
+
+User question: {state['user_input']}
+Available tables: {tables}
+Time range: {time_range}
+
+Use the available tools to query data and generate results."""
+
+        else:
+            return f"""You are a helpful assistant.
+User question: {state['user_input']}
+
+Use the available tools if needed to help answer the question."""
 
     def intent_detection_node(self, state: AgentState) -> Dict[str, Any]:
         """意图识别节点 - 分类用户查询为 knowledge/data/hybrid"""

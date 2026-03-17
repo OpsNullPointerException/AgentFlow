@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import Mock, patch
-from agents.langgraph_service import LangGraphAgentService
+from agents.services.agent_service import AgentService
 
 
 class TestLangGraphIntegration:
@@ -16,7 +16,7 @@ class TestLangGraphIntegration:
         return {
             "llm": mock_llm,
             "tools": mock_tools,
-            "service": LangGraphAgentService(mock_llm, mock_tools)
+            "service": AgentService(mock_llm, mock_tools)
         }
 
     def test_integration_with_evaluation(self, setup):

@@ -1,8 +1,8 @@
 """计算器工具"""
 
 from typing import Optional, Type
-from langchain.callbacks.manager import CallbackManagerForToolRun
-from langchain.tools import BaseTool
+from langchain_core.callbacks.manager import CallbackManagerForToolRun
+from langchain_core.tools import BaseTool
 from loguru import logger
 from pydantic import BaseModel, Field
 

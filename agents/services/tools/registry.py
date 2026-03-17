@@ -1,7 +1,7 @@
 """工具注册表 - 统一管理所有工具"""
 
 from typing import Dict, List, Optional, Type
-from langchain.tools import BaseTool
+from langchain_core.tools import BaseTool
 from loguru import logger
 
 from ..tool_retry import ToolRetryWrapper

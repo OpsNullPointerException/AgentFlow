@@ -8,8 +8,8 @@
 from datetime import datetime, timedelta, date
 from typing import Optional, Dict, Any, Type
 import re
-from langchain.callbacks.manager import CallbackManagerForToolRun
-from langchain.tools import BaseTool
+from langchain_core.callbacks.manager import CallbackManagerForToolRun
+from langchain_core.tools import BaseTool
 from loguru import logger
 from pydantic import BaseModel, Field
 

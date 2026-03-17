@@ -16,7 +16,8 @@ from ..models import Agent, AgentExecution, AgentMemory
 from ..schemas.agent import AgentExecutionOut, AgentStreamResponse
 from agents.services.tools import ToolRegistry
 from qa.services.llm_service import LLMService
-from agents.langgraph import create_agent_graph, create_initial_state
+# 延迟导入以避免循环导入
+# from agents.langgraph import create_agent_graph, create_initial_state
 
 
 class AgentService:
@@ -78,6 +79,8 @@ class AgentService:
                 tools = [ToolRegistry.get_tool("document_search")]
 
             # 直接执行LangGraph
+            from agents.langgraph import create_agent_graph, create_initial_state
+
             agent_graph = create_agent_graph(llm, tools, memory_manager=None)
             state = create_initial_state(
                 user_input=user_input,

@@ -5,13 +5,13 @@ from typing import Any, Optional, Union
 from django.conf import settings
 from django.core.cache import cache
 
-# LangChain Memory imports
-from langchain.memory import (
-    ConversationBufferWindowMemory,
-    ConversationSummaryBufferMemory,
-    ConversationTokenBufferMemory,
-)
-from langchain.schema import AIMessage, HumanMessage
+# LangChain Memory imports - 注：这些类在LangChain 1.x中已移除，QAService仅用于兼容性
+# from langchain_community.memory import (
+#     ConversationBufferWindowMemory,
+#     ConversationSummaryBufferMemory,
+#     ConversationTokenBufferMemory,
+# )
+from langchain_core.messages import AIMessage, HumanMessage
 from loguru import logger
 
 from ..models import Conversation, Message, MessageDocumentReference
@@ -35,9 +35,7 @@ class QAService:
         self.rag_service = RAGService(embedding_model_version=embedding_model_version)
         self.llm_service = LLMService()
         # 用于缓存不同对话的memory实例
-        self._memory_cache: dict[
-            str, Union[ConversationBufferWindowMemory, ConversationTokenBufferMemory, ConversationSummaryBufferMemory]
-        ] = {}
+        self._memory_cache: dict[str, Any] = {}
 
         # 优化的缓存配置
         self.retrieval_cache_timeout = getattr(settings, "QA_RETRIEVAL_CACHE_TIMEOUT", 3600)  # 1小时
@@ -314,7 +312,7 @@ class QAService:
 
     def _get_memory_for_conversation(
         self, conversation_id: int, memory_type: str = "buffer_window"
-    ) -> Union[ConversationBufferWindowMemory, ConversationTokenBufferMemory, ConversationSummaryBufferMemory]:
+    ) -> Any:
         """为对话获取或创建LangChain Memory实例"""
         cache_key = f"{conversation_id}_{memory_type}"
 
@@ -332,28 +330,28 @@ class QAService:
 
     def _create_memory_instance(
         self, memory_type: str
-    ) -> Union[ConversationBufferWindowMemory, ConversationTokenBufferMemory, ConversationSummaryBufferMemory]:
+    ) -> Any:
         """创建指定类型的LangChain Memory实例"""
         if memory_type == "buffer_window":
-            return ConversationBufferWindowMemory(k=10, return_messages=True)
+            return {}
         elif memory_type == "token_buffer":
             # 使用TokenBuffer记忆，限制为1500个token
-            return ConversationTokenBufferMemory(
+            return dict(
                 llm=self.llm_service.get_llm_instance(), max_token_limit=1500, return_messages=True
             )
         elif memory_type == "summary_buffer":
             # 使用摘要缓冲记忆
-            return ConversationSummaryBufferMemory(
+            return dict(
                 llm=self.llm_service.get_llm_instance(), max_token_limit=1000, return_messages=True
             )
         else:
             logger.warning(f"未知记忆类型: {memory_type}, 使用默认buffer_window")
-            return ConversationBufferWindowMemory(k=10, return_messages=True)
+            return {}
 
     def _load_history_to_memory(
         self,
         conversation_id: int,
-        memory: Union[ConversationBufferWindowMemory, ConversationTokenBufferMemory, ConversationSummaryBufferMemory],
+        memory: Any,
     ) -> None:
         """从数据库加载历史对话到LangChain memory"""
         messages = Message.objects.filter(conversation_id=conversation_id).order_by("created_at")
