@@ -497,20 +497,42 @@ SQL生成要求：
             }
 
     def result_explanation_node(self, state: AgentState) -> Dict[str, Any]:
-        """结果解释节点 - 用自然语言解释查询结果"""
-        logger.info("Explaining result")
+        """结果解释节点 - 支持知识路径和数据路径的两种解释模式"""
+        logger.info(f"Explaining result (intent={state.get('intent_type')})")
 
-        if not state.get("sql_result"):
-            explanation = "No result to explain"
+        intent_type = state.get('intent_type', 'data')
+
+        # 知识路径：使用clarified_terms生成知识解释
+        if intent_type == "knowledge" or not state.get("sql_result"):
+            if state.get("clarified_terms"):
+                prompt = self._build_knowledge_explanation_prompt(state)
+                logger.info("Using knowledge explanation mode")
+            else:
+                return {
+                    "explanation": "No clarified terms found",
+                    "final_answer": "Unable to provide explanation",
+                }
+        # 数据路径：使用sql_result生成数据解释
         else:
-            # 构建解释提示词
-            prompt = self._build_explanation_prompt(state)
+            if state.get("sql_result"):
+                prompt = self._build_explanation_prompt(state)
+                logger.info("Using data explanation mode")
+            else:
+                return {
+                    "explanation": "No query result found",
+                    "final_answer": "Unable to provide explanation",
+                }
 
-            try:
-                explanation = self.llm.predict(prompt)
-            except Exception as e:
-                logger.error(f"Explanation generation error: {e}")
+        try:
+            explanation = self.llm.predict(prompt)
+        except Exception as e:
+            logger.error(f"Explanation generation error: {e}")
+            if state.get("sql_result"):
                 explanation = f"Result: {state.get('sql_result', '')}"
+            elif state.get("clarified_terms"):
+                explanation = str(state.get('clarified_terms', []))
+            else:
+                explanation = "Failed to generate explanation"
 
         return {
             "explanation": explanation,
@@ -864,6 +886,28 @@ SQL生成要求：
 1. 查询理解 - 用户问题的核心
 2. 关键数据 - 最重要的数值或统计
 3. 业务解释 - 这些数据的含义
+
+简洁回答，不超过200字："""
+        return prompt
+
+    def _build_knowledge_explanation_prompt(self, state: AgentState) -> str:
+        """构建知识解释提示词 - 知识路径使用"""
+        clarified_terms_str = "\n".join([
+            f"- {term['term']}: {term['meaning']}"
+            for term in state.get('clarified_terms', [])
+        ])
+
+        prompt = f"""基于以下澄清的术语和定义，用自然语言回答用户问题：
+
+用户问题: {state['user_input']}
+
+【已澄清的术语定义】
+{clarified_terms_str if clarified_terms_str else "无额外定义"}
+
+请用中文回答，包括：
+1. 问题理解 - 澄清用户问题涉及的核心概念
+2. 术语解释 - 相关术语的定义和含义
+3. 综合答案 - 基于澄清结果的完整回答
 
 简洁回答，不超过200字："""
         return prompt
