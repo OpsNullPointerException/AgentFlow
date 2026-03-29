@@ -1,17 +1,19 @@
 """
-智能记忆管理 - 基于相关性和重要性的记忆保留
+智能记忆管理 - 基于相关性和重要性的记忆保留 + 数据库持久化
 
 替换简单的buffer_window/summary模式，实现动态记忆管理：
 - 保留高相关性的历史记忆
 - 保留高重要性的用户交互
 - 自动压缩低重要性的内容
+- 持久化到数据库，跨会话加载
 
 兼容LangChain ConversationMemory接口
 """
 
 from typing import Any, Dict, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 import re
+import json
 from loguru import logger
 
 # 兼容LangChain的消息对象
@@ -23,22 +25,29 @@ class Message:
 
 
 class ChatMemory:
-    """聊天记忆管理，提供LangChain兼容接口"""
+    """聊天记忆管理 - 与SmartMemoryManager.messages同步（LangChain兼容接口）"""
 
-    def __init__(self):
-        self.messages = []
+    def __init__(self, messages_ref: list = None):
+        """
+        初始化ChatMemory
+
+        Args:
+            messages_ref: 引用SmartMemoryManager的messages列表，实现同步
+        """
+        self.messages_ref = messages_ref or []
 
     def add_user_message(self, content: str):
-        """添加用户消息"""
-        self.messages.append(Message(content, "human"))
+        """添加用户消息 - 通过引用同步到SmartMemoryManager"""
+        # 直接通过messages_ref修改，不维护独立的messages列表
+        self.messages_ref.append(Message(content, "human"))
 
     def add_ai_message(self, content: str):
-        """添加AI消息"""
-        self.messages.append(Message(content, "ai"))
+        """添加AI消息 - 通过引用同步到SmartMemoryManager"""
+        self.messages_ref.append(Message(content, "ai"))
 
     def clear(self):
         """清空消息"""
-        self.messages = []
+        self.messages_ref.clear()
 
 
 class MemoryImportance:
@@ -115,10 +124,13 @@ class MemoryImportance:
 
 
 class SmartMemoryManager:
-    """智能记忆管理器 - LangChain兼容接口"""
+    """智能记忆管理器 - LangChain兼容接口 + 数据库持久化"""
 
     def __init__(
         self,
+        user_id: Optional[int] = None,
+        agent_id: Optional[str] = None,
+        conversation_id: Optional[int] = None,
         max_messages: int = 20,
         importance_threshold: float = 0.3,
         max_tokens: int = 2000,
@@ -127,17 +139,29 @@ class SmartMemoryManager:
         初始化智能记忆管理器
 
         Args:
+            user_id: 用户ID（用于从DB加载历史）
+            agent_id: Agent ID（用于从DB加载历史）
+            conversation_id: 对话ID（可选，用于区分不同对话）
             max_messages: 最大消息保留数
             importance_threshold: 重要性阈值（低于此分数的消息可被删除）
             max_tokens: 最大token限制
         """
+        self.user_id = user_id
+        self.agent_id = agent_id
+        self.conversation_id = conversation_id
         self.max_messages = max_messages
         self.importance_threshold = importance_threshold
         self.max_tokens = max_tokens
-        self.messages = []  # 内部消息存储
-        self.chat_memory = ChatMemory()  # LangChain兼容接口
+        self.messages = []  # 统一的消息存储
+        self.chat_memory = ChatMemory(messages_ref=self.messages)
         self.memory_key = "chat_history"
         self.return_messages = True
+
+        # 从数据库加载历史（如果提供了user_id和agent_id）
+        if self.user_id and self.agent_id:
+            self._load_from_db()
+            if self.messages:
+                logger.info(f"✓ Loaded {len(self.messages)} messages from database")
 
     def add_message(
         self, content: str, message_type: str, timestamp: Optional[datetime] = None
@@ -171,9 +195,6 @@ class SmartMemoryManager:
         # 2. 如果超过token限制，继续删除低重要性消息
         if self._estimate_tokens() > self.max_tokens:
             self._trim_by_tokens()
-
-        # 3. 同步到chat_memory
-        self._sync_to_chat_memory()
 
     def _trim_by_count(self):
         """按消息数修剪"""
@@ -219,14 +240,6 @@ class SmartMemoryManager:
                 f"按token数修剪：删除了{removed}条消息，当前token数：{self._estimate_tokens()}"
             )
 
-    def _sync_to_chat_memory(self):
-        """同步内部消息到chat_memory（LangChain兼容）"""
-        self.chat_memory.clear()
-        for msg in self.messages:
-            if msg["type"] == "human":
-                self.chat_memory.add_user_message(msg["content"])
-            else:
-                self.chat_memory.add_ai_message(msg["content"])
 
     def _estimate_tokens(self) -> int:
         """估算所有消息的总token数"""
@@ -366,4 +379,85 @@ class SmartMemoryManager:
         self.messages = []
         self.chat_memory.clear()
         logger.info("记忆已清空")
+
+    def _load_from_db(self):
+        """从数据库加载历史消息"""
+        if not self.user_id or not self.agent_id:
+            logger.warning("Cannot load from DB: user_id or agent_id is missing")
+            return
+
+        try:
+            from agents.models import AgentMemory
+
+            # 查询记忆数据库
+            query = AgentMemory.objects.filter(
+                user_id=self.user_id,
+                agent_id=self.agent_id
+            )
+
+            # 如果指定了conversation_id，则过滤
+            if self.conversation_id:
+                query = query.filter(conversation_id=self.conversation_id)
+
+            # 按创建时间排序（最旧的在前）
+            memories = query.order_by("created_at")[:self.max_messages]
+
+            # 转换为消息格式
+            for memory in memories:
+                try:
+                    memory_data = memory.memory_data or {}
+                    if isinstance(memory_data, str):
+                        memory_data = json.loads(memory_data)
+
+                    # 假设memory_data格式为 {"messages": [{"type": "human", "content": "..."}, ...]}
+                    if "messages" in memory_data:
+                        for msg in memory_data["messages"]:
+                            self.messages.append({
+                                "content": msg.get("content", ""),
+                                "type": msg.get("type", "human"),
+                                "timestamp": datetime.fromisoformat(msg["timestamp"]) if isinstance(msg.get("timestamp"), str) else msg.get("timestamp", datetime.now()),
+                                "importance": MemoryImportance.score_message(msg.get("content", ""), msg.get("type", "human")),
+                            })
+                except Exception as e:
+                    logger.warning(f"Failed to parse memory data: {e}")
+
+            logger.info(f"✓ Loaded {len(self.messages)} messages from AgentMemory")
+
+        except Exception as e:
+            logger.error(f"Failed to load from database: {e}")
+
+    def save_to_db(self):
+        """将当前消息保存到数据库"""
+        if not self.user_id or not self.agent_id:
+            logger.warning("Cannot save to DB: user_id or agent_id is missing")
+            return
+
+        try:
+            from agents.models import AgentMemory
+
+            # 将消息转换为可JSON序列化的格式
+            messages_data = []
+            for msg in self.messages:
+                messages_data.append({
+                    "type": msg.get("type"),
+                    "content": msg.get("content"),
+                    "timestamp": msg.get("timestamp").isoformat() if isinstance(msg.get("timestamp"), datetime) else str(msg.get("timestamp")),
+                })
+
+            # 保存到数据库
+            memory_record, created = AgentMemory.objects.update_or_create(
+                user_id=self.user_id,
+                agent_id=self.agent_id,
+                memory_key="chat_history",
+                conversation_id=self.conversation_id,
+                defaults={
+                    "memory_data": {"messages": messages_data},
+                    "expires_at": datetime.now() + timedelta(days=30)  # 30天后过期
+                }
+            )
+
+            logger.info(f"✓ {'Created' if created else 'Updated'} AgentMemory record with {len(self.messages)} messages")
+
+        except Exception as e:
+            logger.error(f"Failed to save to database: {e}")
 

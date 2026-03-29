@@ -80,8 +80,19 @@ class AgentService:
 
             # 直接执行LangGraph
             from agents.langgraph import create_agent_graph, create_initial_state
+            from agents.services.smart_memory import SmartMemoryManager
 
-            agent_graph = create_agent_graph(llm, tools, memory_manager=None)
+            # 创建并初始化记忆管理器（从数据库加载历史）
+            memory_manager = SmartMemoryManager(
+                user_id=user_id,
+                agent_id=agent_id,
+                conversation_id=conversation_id,
+                max_messages=20,
+                max_tokens=2000
+            )
+            logger.info(f"✓ Initialized memory manager with {len(memory_manager.messages)} historical messages")
+
+            agent_graph = create_agent_graph(llm, tools, memory_manager=memory_manager)
             state = create_initial_state(
                 user_input=user_input,
                 user_id=str(user_id),

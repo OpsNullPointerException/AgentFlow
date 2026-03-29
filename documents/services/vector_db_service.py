@@ -434,11 +434,16 @@ class VectorDBService:
                         version_mismatch_count += 1
                         continue
 
+                    # 构建完整的内容：包含标题上下文
+                    full_content = chunk.content
+                    if chunk.section_path:
+                        full_content = f"[{chunk.section_path}]\n\n{full_content}"
+
                     results.append(
                         DocumentSearchResultOut(
                             id=document.id,
                             title=document.title,
-                            content=chunk.content,
+                            content=full_content,
                             score=float(distances[0][i]),  # 转换numpy.float32为Python float
                             chunk_index=chunk.chunk_index,
                             embedding_model_version=document.embedding_model_version,

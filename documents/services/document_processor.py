@@ -2,12 +2,13 @@ import os
 import gc
 import PyPDF2
 import docx
-from typing import List, Generator
+from typing import List
 from loguru import logger
 
 from django.conf import settings
 from ..models import Document, DocumentChunk
 from .vector_db_service import VectorDBService
+from .hierarchical_chunking import TitleExtractor
 
 # loguru不需要getLogger
 
@@ -183,53 +184,36 @@ class DocumentProcessor:
         return "".join(text_chunks)
 
     def _process_chunks(self, document: Document, content: str):
-        """分批处理文本分块和保存"""
+        """分批处理文本分块和保存（一次遍历提取元数据）"""
         # 1. 先删除现有分块
         DocumentChunk.objects.filter(document_id=document.id).delete()
 
-        # 2. 根据文档类型和内容选择合适的分块策略和大小
-        file_extension = document.file_type.lower() if document.file_type else "txt"
-
-        # 根据文件类型和文档大小选择最佳策略
-        if len(content) > 100000:  # 大文档 (100KB+)
-            strategy = "auto"  # 自动选择最佳策略
-            chunk_size = 800  # 较大块，减少块数量
-            logger.info(f"文档{document.id}较大({len(content) / 1024:.1f}KB)，使用自动分块策略")
-        elif file_extension in ["pdf", "docx"] and len(content) > 10000:
-            strategy = "semantic"  # 结构化文档使用语义分块
-            chunk_size = 1000
-            logger.info(f"文档{document.id}为结构化文档，使用语义分块")
-        elif "\n\n" in content[:5000]:  # 检查是否有明显的段落
-            strategy = "paragraph"
-            chunk_size = 800
-            logger.info(f"文档{document.id}有明显段落结构，使用段落分块")
-        else:
-            strategy = "simple"  # 短文本或无明显结构
-            chunk_size = 500
-            logger.info(f"文档{document.id}为简单文本，使用简单分块")
-
-        # 执行分块
-        logger.info(f"开始对文档{document.id}进行分块，策略:{strategy}，块大小:{chunk_size}")
-        chunks = self._chunk_text(content, chunk_size=chunk_size, strategy=strategy)
-        logger.info(f"文档{document.id}分块完成，共{len(chunks)}个块")
+        # 2. 一次性完成：分块 + 提取元数据
+        logger.info(f"开始对文档{document.id}进行分块和元数据提取")
+        chunks_with_metadata = self._chunk_and_extract_metadata(content)
+        logger.info(f"文档{document.id}分块完成，共{len(chunks_with_metadata)}个块")
 
         # 3. 批量保存分块
         batch_size = 20
-        total_chunks = len(chunks)
-        metadata = {"chunking_strategy": strategy, "chunk_size": chunk_size}
+        total_chunks = len(chunks_with_metadata)
 
         for i in range(0, total_chunks, batch_size):
-            batch = chunks[i : i + batch_size]
+            batch = chunks_with_metadata[i : i + batch_size]
             chunk_objects = []
 
-            for idx, chunk_content in enumerate(batch):
+            for idx, chunk_data in enumerate(batch):
+                chunk_index = i + idx
+
                 chunk_objects.append(
                     DocumentChunk(
                         document_id=document.id,
-                        content=chunk_content,
-                        chunk_index=i + idx,
-                        # 保存使用的嵌入模型版本
+                        content=chunk_data["content"],
+                        chunk_index=chunk_index,
                         embedding_model_version=self.embedding_model_version,
+                        title=chunk_data.get("title"),
+                        section_path=chunk_data.get("section_path"),
+                        hierarchy_level=chunk_data.get("hierarchy_level", 0),
+                        parent_chunk_index=chunk_index - 1 if chunk_index > 0 else None,
                     )
                 )
 
@@ -241,54 +225,156 @@ class DocumentProcessor:
             del chunk_objects
             gc.collect()
 
-    # 使用策略模式的分块算法
-    def _chunk_text(
-        self,
-        text: str,
-        chunk_size: int = 500,
-        overlap_ratio: float = 0.1,
-        lookback_ratio: float = 0.1,
-        strategy: str = "auto",
-    ) -> List[str]:
+    # 使用LangChain RecursiveCharacterTextSplitter的分块算法
+    def _chunk_text(self, text: str, chunk_size: int = 1000, chunk_overlap: int = 100) -> List[str]:
         """
-        将文本分块，支持多种分块策略
+        使用LangChain RecursiveCharacterTextSplitter进行文本分块
 
         Args:
             text: 要分块的文本
-            chunk_size: 每块的目标大小
-            overlap_ratio: 块间重叠比例(默认10%)
-            lookback_ratio: 寻找断点时的最大回溯比例(默认10%)
-            strategy: 分块策略 ("simple", "paragraph", "semantic", "auto")
+            chunk_size: 目标块大小
+            chunk_overlap: 块间重叠字符数
+
+        Returns:
+            分块结果列表
         """
-        # 导入策略模式相关类
-        from .chunking_strategies import ChunkingStrategyFactory
+        try:
+            from langchain_text_splitters import RecursiveCharacterTextSplitter
+        except ImportError:
+            logger.error("LangChain text splitters未安装，使用备用方案")
+            # 备用方案：简单分块
+            return self._simple_fallback_chunk(text, chunk_size)
 
-        if not text:
-            return []
-
-        # 使用工厂创建合适的策略对象
-        if strategy == "auto":
-            chunking_strategy = ChunkingStrategyFactory.select_best_strategy(text)
-            logger.info(f"自动选择分块策略: {chunking_strategy.get_name()}")
-        else:
-            chunking_strategy = ChunkingStrategyFactory.create_strategy(strategy)
-            logger.info(f"使用指定分块策略: {chunking_strategy.get_name()}")
-
-        # 调用策略对象的分块方法
-        return chunking_strategy.chunk_text(
-            text, chunk_size, overlap_ratio=overlap_ratio, lookback_ratio=lookback_ratio
+        # 创建分块器，按层级依次尝试在以下位置断开：
+        # 1. Markdown标题 (##, ###等)
+        # 2. 段落边界 (\n\n)
+        # 3. 句子边界 (。？！等)
+        # 4. 单词边界 (空格)
+        splitter = RecursiveCharacterTextSplitter(
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            separators=[
+                "\n## ",  # Markdown h2
+                "\n### ",  # Markdown h3
+                "\n#### ",  # Markdown h4
+                "\n\n",  # 段落边界
+                "\n",  # 行
+                "。",  # 中文句号
+                "！",  # 中文感叹号
+                "？",  # 中文问号
+                "；",  # 中文分号
+                " ",  # 空格
+                "",  # 字符
+            ],
         )
 
-    # _select_chunking_strategy 方法已移至 ChunkingStrategyFactory 类
+        chunks = splitter.split_text(text)
+        logger.info(f"LangChain分块完成，共{len(chunks)}个块")
+        return chunks
 
-    # _detect_structure 方法已移至 chunking_strategies.py
+    def _simple_fallback_chunk(self, text: str, chunk_size: int = 1000) -> List[str]:
+        """
+        备用分块方案：简单的固定大小分块（当LangChain不可用时）
 
-    # _split_paragraphs 方法已移至 chunking_strategies.py
+        Args:
+            text: 文本
+            chunk_size: 块大小
 
-    # _simple_chunk 方法已移至 SimpleChunkingStrategy 类
+        Returns:
+            分块列表
+        """
+        logger.warning("使用备用分块方案（LangChain不可用）")
+        chunks = []
 
-    # _paragraph_chunk 方法已移至 ParagraphChunkingStrategy 类
+        if not text:
+            return chunks
 
-    # _semantic_chunk 方法已移至 SemanticChunkingStrategy 类
+        start = 0
+        while start < len(text):
+            end = min(start + chunk_size, len(text))
 
-    # _extract_document_structure 方法已移至 SemanticChunkingStrategy 类
+            # 寻找句子边界
+            if end < len(text):
+                # 优先在段落边界断开
+                para_pos = text.rfind("\n\n", start + chunk_size // 2, end)
+                if para_pos > start:
+                    end = para_pos + 2
+                else:
+                    # 其次在句号断开
+                    sentence_boundaries = ["。", "？", "！", "\n"]
+                    found = False
+                    for boundary in sentence_boundaries:
+                        boundary_pos = text.rfind(boundary, start + chunk_size // 2, end)
+                        if boundary_pos > start:
+                            end = boundary_pos + len(boundary)
+                            found = True
+                            break
+
+            chunk = text[start:end].strip()
+            if chunk:
+                chunks.append(chunk)
+
+            start = end
+
+        return chunks
+
+    def _chunk_and_extract_metadata(self, text: str) -> list[dict[str, any]]:
+        """
+        一次遍历：分块 + 提取标题元数据
+
+        关键思想：维护标题栈，为每个chunk记录当前的标题路径
+
+        Args:
+            text: 完整文本
+
+        Returns:
+            [{content, title, section_path, hierarchy_level}, ...]
+        """
+        # 1. 先完成分块
+        chunks = self._chunk_text(text)
+        if not chunks:
+            return []
+
+        # 2. 一次性扫描文本，记录所有标题及其位置
+        lines = text.split("\n")
+        title_positions = []  # [(pos, title, level), ...]
+        current_pos = 0
+
+        for line in lines:
+            title_info = TitleExtractor.extract_title(line)
+            if title_info:
+                title, level = title_info
+                title_positions.append((current_pos, title, level))
+            current_pos += len(line) + 1  # +1 for newline
+
+        # 3. 为每个chunk找到对应的标题路径
+        results = []
+        for chunk_text in chunks:
+            # 在文本中找到chunk的位置
+            chunk_pos = text.find(chunk_text)
+            if chunk_pos == -1:
+                chunk_pos = 0
+
+            # 收集这个chunk之前的所有标题，建立栈
+            title_stack = []  # [(title, level), ...]
+            for pos, title, level in title_positions:
+                if pos >= chunk_pos:
+                    break
+                # 栈管理：移除所有 level >= 当前level 的元素
+                title_stack = [(t, lvl) for t, lvl in title_stack if lvl < level]
+                title_stack.append((title, level))
+
+            # 提取元数据
+            current_title = title_stack[-1][0] if title_stack else ""
+            section_path = " > ".join([t for t, _ in title_stack])
+            hierarchy_level = title_stack[-1][1] if title_stack else 0
+
+            results.append({
+                "content": chunk_text,
+                "title": current_title,
+                "section_path": section_path,
+                "hierarchy_level": hierarchy_level,
+            })
+
+        return results
+

@@ -114,6 +114,12 @@ class DocumentChunk(models.Model):
     # 存储块向量化时使用的嵌入模型版本
     embedding_model_version = models.CharField("嵌入模型版本", max_length=50, null=True, blank=True)
 
+    # 结构感知分块字段
+    title = models.CharField("标题/章节名", max_length=500, blank=True, null=True)  # 该块所属的标题
+    section_path = models.CharField("章节路径", max_length=500, blank=True, null=True)  # 完整的标题路径：如 "第一章 > 第一节 > 小节"
+    hierarchy_level = models.IntegerField("层级", default=0)  # 标题层级：0=顶级，1=二级等
+    parent_chunk_index = models.IntegerField("父块索引", blank=True, null=True)  # 指向上一级标题块的索引
+
     class Meta:
         verbose_name = "文档块"
         verbose_name_plural = "文档块"

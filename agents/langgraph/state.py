@@ -17,7 +17,7 @@ class ExecutionStep(TypedDict):
 
 
 class AgentState(TypedDict):
-    """Agent执行的完整状态"""
+    """Agent执行的完整状态 - 精简版（LangGraph ToolNode架构）"""
 
     # 输入相关
     user_input: str
@@ -25,36 +25,28 @@ class AgentState(TypedDict):
     agent_id: str
     conversation_id: Optional[str]
 
-    # Agent循环状态
-    agent_scratchpad: str  # 历史思考过程
-    intermediate_steps: List[tuple]  # (AgentAction, str) 对列表
-    iteration: int  # 当前迭代次数
-    max_iterations: int  # 最大迭代数
+    # LangGraph消息链
+    messages: Annotated[list[BaseMessage], "aggregated messages"]
 
-    # 工具执行状态
-    current_tool: Optional[str]  # 当前正在执行的工具
-    tools_used: List[str]  # 使用过的所有工具
-    execution_steps: List[ExecutionStep]  # 详细的执行步骤
+    # 工具执行追踪
+    tools_used: List[str]
+    execution_steps: List[ExecutionStep]
 
     # 结果和评测
-    final_answer: Optional[str]  # 最终答案
-    evaluation_result: Optional[dict]  # 评测结果
-    eval_passed: bool  # 是否通过评测
-    eval_score: float  # 评测分数（0-1）
+    final_answer: Optional[str]
+    evaluation_result: Optional[dict]
+    eval_passed: bool
+    eval_score: float
 
     # 错误和重试
     error_message: Optional[str]
-    error_diagnosis: Optional[str]  # 错误诊断: "syntax_error" / "no_results" / "field_not_exists" / "timeout" / "invalid_answer" / "evaluation_failed"
-    error_category: Optional[str]  # 错误分类: "retryable_logic_error" / "permanent_error" / "temporary_error"
-    retry_count: int  # 重试次数
-    retry_strategy: Optional[str]  # 重试策略: "regenerate_sql" / "reprobe_fields" / "rediscover_schema" / "requery_knowledge" / "give_up"
+    error_diagnosis: Optional[str]  # "syntax_error" / "no_results" / "field_not_exists" / "timeout" / "invalid_answer" / "evaluation_failed"
+    error_category: Optional[str]  # "retryable_logic_error" / "permanent_error" / "temporary_error"
+    retry_count: int
+    retry_strategy: Optional[str]  # "regenerate_sql" / "reprobe_fields" / "rediscover_schema" / "requery_knowledge" / "give_up"
 
     # 记忆和上下文
-    chat_history: List[BaseMessage]  # 聊天历史
-    memory_context: Optional[str]  # 记忆提取的上下文
-
-    # 观察脱敏
-    masked_observations: List[str]  # 脱敏后的观察（token节省：50-96%）
+    memory_context: Optional[str]
 
     # 元信息
     start_time: Optional[datetime]
@@ -63,24 +55,21 @@ class AgentState(TypedDict):
 
     # ========== 多路径路由相关字段 ==========
 
-    # 意图识别和路由
-    intent_type: Optional[str]  # "knowledge" / "data" / "hybrid" / None
+    # 意图识别
+    intent_type: Optional[str]  # "knowledge" / "data" / "hybrid"
 
-    # 知识路径字段
+    # 知识路径
     clarified_terms: List[Dict[str, str]]  # [{"term": "A厂商", "meaning": "..."}]
 
-    # 数据路径字段
+    # 数据路径
     time_range: Optional[Dict[str, str]]  # {"start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD"}
-    relevant_tables: List[str]  # 相关的数据库表名
+    relevant_tables: List[str]
     relevant_fields: Dict[str, List[str]]  # {table_name: [field1, field2, ...]}
-    field_samples: Dict[str, List[Any]]  # {table.field: [sample1, sample2, ...]} 字段采样值
+    field_samples: Dict[str, List[Any]]  # {table.field: [sample1, sample2, ...]}
 
-    # 查询和结果
-    sql_result: Optional[str]  # SQL查询结果
-    explanation: Optional[str]  # 自然语言解释
-
-    # 执行追踪
-    execution_trace: Optional[Any]  # ExecutionTrace实例（用于详细追踪）
+    # 查询结果
+    sql_result: Optional[str]
+    explanation: Optional[str]
 
 
 def create_initial_state(
@@ -98,11 +87,7 @@ def create_initial_state(
         "user_id": user_id,
         "agent_id": agent_id,
         "conversation_id": conversation_id,
-        "agent_scratchpad": "",
-        "intermediate_steps": [],
-        "iteration": 0,
-        "max_iterations": max_iterations,
-        "current_tool": None,
+        "messages": [],
         "tools_used": [],
         "execution_steps": [],
         "final_answer": None,
@@ -114,9 +99,7 @@ def create_initial_state(
         "error_category": None,
         "retry_count": 0,
         "retry_strategy": None,
-        "chat_history": [],
         "memory_context": None,
-        "masked_observations": [],
         "start_time": datetime.now(),
         "end_time": None,
         "total_duration": 0.0,

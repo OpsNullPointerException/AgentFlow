@@ -84,12 +84,11 @@ class NodeManager:
 
         return {
             "memory_context": memory_context,
-            "iteration": 0,
         }
 
     def agent_loop_node(self, state: AgentState) -> Dict[str, Any]:
-        """✅ Phase 5: Agent推理 - 使用model_with_tools输出structured tool_calls"""
-        logger.info(f"Agent loop iteration {state['iteration']} (using model_with_tools)")
+        """✅ Agent推理 - 使用model_with_tools输出structured tool_calls"""
+        logger.info(f"Agent loop (using model_with_tools)")
 
         # 构建提示
         system_prompt = self._build_system_prompt(state)
@@ -126,7 +125,6 @@ class NodeManager:
         return {
             "messages": state.get("messages", []) + [response],
             "execution_steps": state["execution_steps"] + [step],
-            "iteration": state["iteration"] + 1,
         }
 
     def _build_system_prompt(self, state: AgentState) -> str:
@@ -182,7 +180,8 @@ Use the available tools if needed to help answer the question."""
         elif data_score > 0 and knowledge_score > 0:
             intent_type = "hybrid"
         else:
-            # 如果启发式判断不确定，用LLM
+            # 如果启发式判断不确定，用LLM + 历史记忆
+            logger.info("Heuristic detection uncertain, using LLM with memory context")
             prompt = self._build_intent_detection_prompt(state)
             try:
                 response = self.llm.predict(prompt).strip().lower()
@@ -200,7 +199,6 @@ Use the available tools if needed to help answer the question."""
 
         return {
             "intent_type": intent_type,
-            "iteration": state["iteration"],
         }
 
     def time_check_node(self, state: AgentState) -> Dict[str, Any]:
@@ -303,8 +301,8 @@ Use the available tools if needed to help answer the question."""
             return {"relevant_tables": [], "relevant_fields": {}}
 
     def field_probing_node(self, state: AgentState) -> Dict[str, Any]:
-        """字段探测节点 - 采样字段实际值以避免盲目SQL"""
-        logger.info("Probing field values")
+        """字段探测节点 - 采样字段值，参考历史访问偏好"""
+        logger.info("Probing field values with memory context")
 
         field_samples = {}
         sql_tool = self.tool_map.get("sql_query")
@@ -314,6 +312,12 @@ Use the available tools if needed to help answer the question."""
             return {"field_samples": field_samples}
 
         try:
+            # 获取历史记忆，用于字段优先级排序
+            memory_context = state.get("memory_context", "") or ""
+            memory_hint = f"用户历史倾向：{memory_context[:200]}" if memory_context else "首次查询"
+
+            logger.info(f"Field probing hint from memory: {memory_hint}")
+
             # 对每个相关字段执行 SELECT DISTINCT LIMIT 10 探测
             for table, fields in state.get("relevant_fields", {}).items():
                 for field in fields[:3]:  # 只探测前3个字段以节省时间
@@ -340,8 +344,8 @@ Use the available tools if needed to help answer the question."""
             return {"field_samples": field_samples}
 
     def terminology_clarification_node(self, state: AgentState) -> Dict[str, Any]:
-        """术语澄清节点 - 使用RAG查知识库澄清中文术语和行业黑话"""
-        logger.info("Clarifying terminology")
+        """术语澄清节点 - 使用RAG + 历史记忆理解用户术语"""
+        logger.info("Clarifying terminology with memory context")
 
         clarified_terms = []
         doc_search_tool = self.tool_map.get("document_search")
@@ -350,6 +354,10 @@ Use the available tools if needed to help answer the question."""
             logger.warning("document_search tool not found")
             return {"clarified_terms": clarified_terms}
 
+        # 使用历史记忆增强术语提取
+        memory_context = state.get("memory_context", "") or ""
+        memory_hint = f"\n\n【用户的历史术语使用】\n{memory_context}" if memory_context else ""
+
         # 用LLM从用户输入中提取可能需要澄清的关键术语
         extract_prompt = f"""从用户问题中提取所有可能需要澄清的关键术语和业务概念。
 这些术语可能是：
@@ -357,7 +365,7 @@ Use the available tools if needed to help answer the question."""
 - 代码或缩写（如"A厂商"、"SKU"）
 - 状态值（如"已完成"、"待审核"）
 
-用户问题: {state['user_input']}
+用户问题: {state['user_input']}{memory_hint}
 
 只返回一个逗号分隔的术语列表，不要解释。如果没有需要澄清的术语，返回空。"""
 
@@ -436,6 +444,10 @@ Use the available tools if needed to help answer the question."""
             for term_dict in state.get("clarified_terms", [])
         ])
 
+        # 从历史记忆中提取SQL示例
+        memory_context = state.get("memory_context", "") or ""
+        memory_hint = f"\n\n【用户历史查询风格】\n{memory_context[:300]}" if memory_context else ""
+
         # 如果是重试，包含之前的错误信息
         retry_hint = ""
         if state.get("retry_count", 0) > 0 and state.get("error_message"):
@@ -455,7 +467,7 @@ Use the available tools if needed to help answer the question."""
 {field_samples_info if field_samples_info else "无采样值"}
 
 【时间范围】
-{state.get('time_range', '无时间限制')}{retry_hint}
+{state.get('time_range', '无时间限制')}{memory_hint}{retry_hint}
 
 SQL生成要求：
 ✓ 明确指定SELECT的字段，禁止SELECT *
@@ -539,62 +551,6 @@ SQL生成要求：
             "final_answer": explanation,  # 设置最终答案
         }
 
-    def tool_execution_node(self, state: AgentState) -> Dict[str, Any]:
-        """执行工具"""
-        # 从scratchpad解析出Action
-        action = self._parse_action_from_scratchpad(state["agent_scratchpad"])
-
-        if not action:
-            return {"error_message": "Failed to parse action"}
-
-        tool_name = action.tool
-        tool_input = action.tool_input
-
-        logger.info(f"Executing tool: {tool_name} with input: {tool_input}")
-
-        try:
-            # 获取工具
-            tool = self.tool_map.get(tool_name)
-            if not tool:
-                error = f"Tool {tool_name} not found"
-                return {"error_message": error}
-
-            # 执行工具
-            start = time.time()
-            result = tool.run(tool_input)
-            duration = time.time() - start
-
-            # 脱敏观察结果（token节省：50-96%）
-            masked_result = ObservationMasker.mask_observation(tool_name, result)
-
-            # 记录执行步骤（包含原始和脱敏版本用于追踪）
-            step = ExecutionStep(
-                step_type="tool_call",
-                tool_name=tool_name,
-                tool_input=tool_input,
-                tool_output=result,  # 原始结果用于审计
-                timestamp=datetime.now(),
-                duration=duration
-            )
-            # 添加脱敏版本用于追踪LLM输入
-            step["masked_output"] = masked_result
-
-            return {
-                "current_tool": tool_name,
-                "tools_used": state["tools_used"] + [tool_name],
-                "masked_observations": state["masked_observations"] + [masked_result],
-                "execution_steps": state["execution_steps"] + [step],
-                "agent_scratchpad": state["agent_scratchpad"] + f"Observation: {masked_result}\n",
-                "retry_count": 0,
-            }
-
-        except Exception as e:
-            logger.error(f"Tool execution error: {e}")
-            error_msg = f"Tool execution error: {str(e)}"
-            return {
-                "error_message": error_msg,
-                "retry_count": state["retry_count"] + 1,
-            }
 
     def evaluate_node(self, state: AgentState) -> Dict[str, Any]:
         """评测执行结果 - 按路径类型分别评测，返回诊断信息供重试决策使用"""
@@ -828,15 +784,36 @@ SQL生成要求：
         }
 
     def final_answer_node(self, state: AgentState) -> Dict[str, Any]:
-        """生成最终答案"""
-        logger.info("Generating final answer")
+        """生成最终答案，并将会话保存到数据库"""
+        logger.info("Generating final answer and saving to memory database")
 
-        # 从scratchpad提取最终答案
-        final_answer = self._extract_final_answer(state["agent_scratchpad"])
+        # 获取最终答案：从explanation或sql_result
+        final_answer = state.get("explanation") or state.get("sql_result") or "No answer generated"
 
         # 计算总时长
         end_time = datetime.now()
         duration = (end_time - state["start_time"]).total_seconds() if state["start_time"] else 0.0
+
+        # 将本轮对话添加到记忆系统并保存到数据库
+        if self.memory_manager:
+            try:
+                # 添加用户查询
+                self.memory_manager.add_message(
+                    content=state['user_input'],
+                    message_type="human",
+                    timestamp=state.get("start_time")
+                )
+                # 添加AI回答
+                self.memory_manager.add_message(
+                    content=final_answer,
+                    message_type="ai",
+                    timestamp=end_time
+                )
+                # 保存到数据库
+                self.memory_manager.save_to_db()
+                logger.info("✓ Saved conversation to memory database")
+            except Exception as e:
+                logger.warning(f"Failed to save to memory database: {e}")
 
         return {
             "final_answer": final_answer,
@@ -845,33 +822,57 @@ SQL生成要求：
         }
 
     def error_handler_node(self, state: AgentState) -> Dict[str, Any]:
-        """错误处理"""
+        """错误处理，记录失败的对话到数据库"""
         logger.error(f"Error in execution: {state.get('error_message')}")
 
+        error_message = f"Error: {state.get('error_message', 'Unknown error')}"
+
+        # 即使出错也记录到数据库（便于后续诊断）
+        if self.memory_manager:
+            try:
+                self.memory_manager.add_message(
+                    content=state['user_input'],
+                    message_type="human",
+                    timestamp=state.get("start_time")
+                )
+                self.memory_manager.add_message(
+                    content=error_message,
+                    message_type="ai",
+                    timestamp=datetime.now()
+                )
+                self.memory_manager.save_to_db()
+                logger.info("✓ Logged error conversation to memory database")
+            except Exception as e:
+                logger.warning(f"Failed to log error to memory database: {e}")
+
         return {
-            "final_answer": f"Error: {state.get('error_message', 'Unknown error')}",
+            "final_answer": error_message,
             "error_message": state.get("error_message"),
         }
 
     # ============ 辅助方法 ============
 
     def _build_intent_detection_prompt(self, state: AgentState) -> str:
-        """构建意图识别提示词"""
+        """构建意图识别提示词 - 使用历史记忆帮助ambiguous查询"""
         memory_context = state.get("memory_context", "") or ""
-        memory_str = f"\n历史对话：\n{memory_context}" if memory_context else ""
+        memory_str = f"\n\n【历史相似查询】\n{memory_context}" if memory_context else ""
 
-        prompt = f"""分类用户查询类型（只返回一个词）：
+        prompt = f"""根据用户查询和历史对话，分类查询类型（只返回一个词）：
+
 - knowledge: 纯知识问题（概念、术语、规则解释）
 - data: 数据查询问题（涉及数据库、SQL、统计）
-- hybrid: 既需要知识澄清又需要数据查询
+- hybrid: 既需要知识澄清又需要数据查询{memory_str}
 
-用户问题: {state['user_input']}{memory_str}
+当前问题: {state['user_input']}
 
 返回: knowledge / data / hybrid"""
         return prompt
 
     def _build_explanation_prompt(self, state: AgentState) -> str:
-        """构建结果解释提示词"""
+        """构建结果解释提示词 - 参考历史风格"""
+        memory_context = state.get("memory_context", "") or ""
+        memory_hint = f"\n\n【用户历史回复风格】\n{memory_context[:250]}" if memory_context else ""
+
         prompt = f"""基于以下信息，用自然语言解释查询结果：
 
 用户问题: {state['user_input']}
@@ -880,7 +881,7 @@ SQL生成要求：
 
 时间范围: {state.get('time_range', 'N/A')}
 
-澄清的术语: {state.get('clarified_terms', [])}
+澄清的术语: {state.get('clarified_terms', [])}{memory_hint}
 
 请用中文总结：
 1. 查询理解 - 用户问题的核心
@@ -891,18 +892,21 @@ SQL生成要求：
         return prompt
 
     def _build_knowledge_explanation_prompt(self, state: AgentState) -> str:
-        """构建知识解释提示词 - 知识路径使用"""
+        """构建知识解释提示词 - 知识路径使用，参考历史风格"""
         clarified_terms_str = "\n".join([
             f"- {term['term']}: {term['meaning']}"
             for term in state.get('clarified_terms', [])
         ])
+
+        memory_context = state.get("memory_context", "") or ""
+        memory_hint = f"\n\n【用户历史回复偏好】\n{memory_context[:250]}" if memory_context else ""
 
         prompt = f"""基于以下澄清的术语和定义，用自然语言回答用户问题：
 
 用户问题: {state['user_input']}
 
 【已澄清的术语定义】
-{clarified_terms_str if clarified_terms_str else "无额外定义"}
+{clarified_terms_str or "无额外定义"}{memory_hint}
 
 请用中文回答，包括：
 1. 问题理解 - 澄清用户问题涉及的核心概念
@@ -929,29 +933,3 @@ Thought process:
 Next action:"""
         return prompt
 
-    def _parse_action_from_scratchpad(self, scratchpad: str):
-        """从scratchpad解析Action"""
-        # 查找 "Action: [tool_name]" 和 "Action Input: [input]"
-        action_match = re.search(r'Action:\s*(\w+)', scratchpad)
-        input_match = re.search(r'Action Input:\s*(.*?)(?:\n|$)', scratchpad)
-
-        if action_match and input_match:
-            tool_name = action_match.group(1)
-            tool_input = input_match.group(1).strip()
-
-            class Action:
-                def __init__(self, tool, input):
-                    self.tool = tool
-                    self.tool_input = input
-
-            return Action(tool_name, tool_input)
-
-        return None
-
-    def _extract_final_answer(self, scratchpad: str) -> str:
-        """从scratchpad提取最终答案"""
-        final_match = re.search(r'Final Answer:\s*(.*?)(?:$|\n\n)', scratchpad, re.DOTALL)
-        if final_match:
-            return final_match.group(1).strip()
-
-        return scratchpad.split('\n')[-1] if scratchpad else "No answer generated"
