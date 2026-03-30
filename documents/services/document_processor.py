@@ -9,6 +9,7 @@ from django.conf import settings
 from ..models import Document, DocumentChunk
 from .vector_db_service import VectorDBService
 from .hierarchical_chunking import TitleExtractor
+from .index_builder import IndexBuilder
 
 # loguru不需要getLogger
 
@@ -184,8 +185,12 @@ class DocumentProcessor:
         return "".join(text_chunks)
 
     def _process_chunks(self, document: Document, content: str):
-        """分批处理文本分块和保存（一次遍历提取元数据）"""
-        # 1. 先删除现有分块
+        """分批处理文本分块、保存和建立倒排索引"""
+        # 1. 先删除现有分块和对应的倒排索引
+        chunk_ids = DocumentChunk.objects.filter(document_id=document.id).values_list("id", flat=True)
+        if chunk_ids:
+            IndexBuilder.delete_index_for_document(document.id)
+
         DocumentChunk.objects.filter(document_id=document.id).delete()
 
         # 2. 一次性完成：分块 + 提取元数据
@@ -193,7 +198,7 @@ class DocumentProcessor:
         chunks_with_metadata = self._chunk_and_extract_metadata(content)
         logger.info(f"文档{document.id}分块完成，共{len(chunks_with_metadata)}个块")
 
-        # 3. 批量保存分块
+        # 3. 批量保存分块并建立倒排索引
         batch_size = 20
         total_chunks = len(chunks_with_metadata)
 
@@ -218,11 +223,17 @@ class DocumentProcessor:
                 )
 
             # 批量创建
-            DocumentChunk.objects.bulk_create(chunk_objects)
-            logger.info(f"保存了{len(chunk_objects)}个文档块，进度: {min(i + batch_size, total_chunks)}/{total_chunks}")
+            created_chunks = DocumentChunk.objects.bulk_create(chunk_objects)
+
+            # 4. 为每个chunk建立倒排索引
+            for chunk in created_chunks:
+                IndexBuilder.build_index_for_chunk(chunk)
+
+            logger.info(f"保存了{len(chunk_objects)}个文档块并建立倒排索引，进度: {min(i + batch_size, total_chunks)}/{total_chunks}")
 
             # 释放内存
             del chunk_objects
+            del created_chunks
             gc.collect()
 
     # 使用LangChain RecursiveCharacterTextSplitter的分块算法

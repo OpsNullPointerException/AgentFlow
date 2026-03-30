@@ -29,13 +29,8 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.WARNING("=== 开始重建向量索引 ==="))
 
-        # 获取向量索引文件路径
-        vector_store_path = settings.VECTOR_STORE_PATH
-        index_file = os.path.join(vector_store_path, "faiss_index.bin")
-        mapping_file = os.path.join(vector_store_path, "chunk_mapping.pkl")
-
-        # 步骤1: 删除索引文件
-        self._delete_index_files(index_file, mapping_file)
+        # 步骤1: 清除pgvector中的向量（pgvector使用数据库存储，不需要删除文件）
+        self._clear_pgvector_embeddings()
 
         # 步骤2: 清除Redis缓存
         self._clear_redis_cache()
@@ -45,10 +40,24 @@ class Command(BaseCommand):
             self._reindex_all_documents(model_version)
         else:
             self.stdout.write(
-                self.style.WARNING("索引已清除，但未重新索引文档。若要自动重新索引所有文档，请使用 --reindex 选项。")
+                self.style.WARNING("向量已清除，但未重新索引文档。若要自动重新索引所有文档，请使用 --reindex 选项。")
             )
 
         self.stdout.write(self.style.SUCCESS("=== 向量索引重建操作完成 ==="))
+
+    def _clear_pgvector_embeddings(self):
+        """清除数据库中的pgvector向量"""
+        self.stdout.write("正在清除pgvector中的向量...")
+
+        try:
+            from documents.models import DocumentChunk
+
+            # 清除所有embedding字段
+            DocumentChunk.objects.all().update(embedding=None)
+            self.stdout.write(self.style.SUCCESS("✓ 已清除所有pgvector向量"))
+
+        except Exception as e:
+            self.stdout.write(self.style.ERROR(f"清除pgvector向量失败: {str(e)}"))
 
     def _delete_index_files(self, index_file, mapping_file):
         """删除索引文件"""
@@ -86,24 +95,6 @@ class Command(BaseCommand):
                 password=settings.REDIS_PASSWORD if hasattr(settings, "REDIS_PASSWORD") else None,
             )
 
-            # 清除索引更新标记
-            pattern_update = "smartdocs:faiss:updated:*"
-            keys_update = r.keys(pattern_update)
-            if keys_update:
-                r.delete(*keys_update)
-                self.stdout.write(f"  ✓ 已删除 {len(keys_update)} 个索引更新标记")
-            else:
-                self.stdout.write("  - 未找到索引更新标记")
-
-            # 清除索引元数据
-            pattern_meta = "smartdocs:faiss:meta:*"
-            keys_meta = r.keys(pattern_meta)
-            if keys_meta:
-                r.delete(*keys_meta)
-                self.stdout.write(f"  ✓ 已删除 {len(keys_meta)} 个索引元数据")
-            else:
-                self.stdout.write("  - 未找到索引元数据")
-
             # 清除向量搜索缓存
             pattern_search = "smartdocs:cache:vector_search:*"
             keys_search = r.keys(pattern_search)
@@ -113,8 +104,7 @@ class Command(BaseCommand):
             else:
                 self.stdout.write("  - 未找到向量搜索缓存")
 
-            total_keys = len(keys_update) + len(keys_meta) + len(keys_search)
-            self.stdout.write(self.style.SUCCESS(f"成功清除了 {total_keys} 个Redis缓存键"))
+            self.stdout.write(self.style.SUCCESS(f"成功清除了 {len(keys_search)} 个Redis缓存键"))
 
         except Exception as e:
             self.stdout.write(self.style.ERROR(f"清除Redis缓存失败: {str(e)}"))

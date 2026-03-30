@@ -4,6 +4,7 @@ from typing import Any, Optional, Dict, List
 from loguru import logger
 
 from documents.services.vector_db_service import VectorDBService
+from documents.services.hybrid_search import HybridSearch
 from qa.schemas.retrieval import RerankInfoOut, RetrievalDocumentsOut, DocumentSearchResultOut
 
 from .reranker_service import RerankerService
@@ -32,9 +33,12 @@ class RAGService:
         rerank_method: str = "llm_rerank",
         rerank_top_k: Optional[int] = None,
         doc_category: Optional[str] = "user",
+        use_hybrid: bool = True,
+        vector_weight: float = 0.5,
+        bm25_weight: float = 0.5,
     ) -> RetrievalDocumentsOut:
         """
-        检索与查询相关的文档，支持重排序
+        检索与查询相关的文档，支持混合检索和重排序
 
         Args:
             query: 用户查询
@@ -42,17 +46,34 @@ class RAGService:
             enable_rerank: 是否启用重排序
             rerank_method: 重排序方法
             rerank_top_k: 重排序后返回的文档数量
-            doc_category: 文档分类过滤 ("user"/"internal"/None表示不过滤)
+            doc_category: 文档分类过滤
+            use_hybrid: 是否使用混合检索（向量+BM25）
+            vector_weight: 向量检索权重
+            bm25_weight: BM25检索权重
 
         Returns:
             RetrievalDocumentsOut: 包含文档列表和重排序信息的schema对象
         """
-        # 1. 初始向量检索 - 检索更多文档以便重排序
+        # 1. 混合检索或纯向量检索
         initial_top_k = max(top_k * 2, 20) if enable_rerank else top_k
-        documents = VectorDBService.search_static(
-            query, initial_top_k, embedding_model_version=self.embedding_model_version,
-            doc_category=doc_category
-        )
+
+        if use_hybrid:
+            logger.info("使用混合检索（向量+BM25）")
+            documents = HybridSearch.search_static(
+                query=query,
+                top_k=initial_top_k,
+                embedding_model_version=self.embedding_model_version,
+                vector_weight=vector_weight,
+                bm25_weight=bm25_weight,
+                doc_category=doc_category
+            )
+        else:
+            logger.info("使用纯向量检索")
+            documents = VectorDBService.search_static(
+                query=query,
+                top_k=initial_top_k,
+                embedding_model_version=self.embedding_model_version
+            )
 
         rerank_info = {"rerank_enabled": enable_rerank, "rerank_method": None, "rerank_time": None}
 

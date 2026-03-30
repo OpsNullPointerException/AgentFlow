@@ -2,6 +2,7 @@ from django.db import models
 from django.contrib.auth.models import User
 import uuid
 import os
+from pgvector.django import VectorField
 
 
 def document_file_path(instance, filename):
@@ -109,7 +110,9 @@ class DocumentChunk(models.Model):
     document_id = models.IntegerField("文档ID")
     content = models.TextField("内容")
     chunk_index = models.IntegerField("块索引")
-    vector_id = models.CharField("向量ID", max_length=255, blank=True, null=True)
+
+    # pgvector 存储 768 维度的向量嵌入
+    embedding = VectorField("嵌入向量", dimensions=768, null=True, blank=True, db_index=True)
 
     # 存储块向量化时使用的嵌入模型版本
     embedding_model_version = models.CharField("嵌入模型版本", max_length=50, null=True, blank=True)
@@ -120,6 +123,11 @@ class DocumentChunk(models.Model):
     hierarchy_level = models.IntegerField("层级", default=0)  # 标题层级：0=顶级，1=二级等
     parent_chunk_index = models.IntegerField("父块索引", blank=True, null=True)  # 指向上一级标题块的索引
 
+    # LLM生成的元数据
+    summary = models.TextField("摘要", blank=True, null=True)  # LLM生成的摘要
+    keywords = models.TextField("关键词", blank=True, null=True)  # JSON格式的关键词列表
+    intent = models.CharField("意图", max_length=50, blank=True, null=True)  # 如：说明、指南、警告等
+
     class Meta:
         verbose_name = "文档块"
         verbose_name_plural = "文档块"
@@ -128,3 +136,27 @@ class DocumentChunk(models.Model):
 
     def __str__(self):
         return f"文档ID:{self.document_id} - 块{self.chunk_index}"
+
+
+class InvertedIndex(models.Model):
+    """倒排索引表 - 用于BM25检索"""
+
+    term = models.CharField("索引词", max_length=100, db_index=True)
+    chunk_id = models.IntegerField("块ID", db_index=True)
+    frequency = models.IntegerField("词频", default=1)
+    positions = models.TextField("词位置", blank=True, null=True)  # JSON格式的词位置列表
+
+    created_at = models.DateTimeField("创建时间", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "倒排索引"
+        verbose_name_plural = "倒排索引"
+        unique_together = ("term", "chunk_id")  # 一个词在一个块里只记一条
+        indexes = [
+            models.Index(fields=["term"], name="idx_term"),
+            models.Index(fields=["chunk_id"], name="idx_chunk_id"),
+            models.Index(fields=["term", "frequency"], name="idx_term_freq"),
+        ]
+
+    def __str__(self):
+        return f"{self.term} → chunk_{self.chunk_id} (freq={self.frequency})"
