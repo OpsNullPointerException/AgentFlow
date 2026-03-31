@@ -344,7 +344,7 @@ Use the available tools if needed to help answer the question."""
             return {"field_samples": field_samples}
 
     def terminology_clarification_node(self, state: AgentState) -> Dict[str, Any]:
-        """术语澄清节点 - 使用RAG + 历史记忆理解用户术语"""
+        """术语澄清节点 - 使用RAG + 历史记忆理解用户术语（并发查询）"""
         logger.info("Clarifying terminology with memory context")
 
         clarified_terms = []
@@ -391,26 +391,36 @@ Use the available tools if needed to help answer the question."""
                 doc_category = "internal"
                 logger.info("Using 'internal' doc_category for data/hybrid path")
 
-            # 对每个术语用RAG查知识库
-            for term in terms[:5]:  # 最多澄清5个术语
+            # 并发查询术语（最多5个）
+            import concurrent.futures
+
+            def search_term(term):
+                """为单个术语查询知识库"""
                 try:
                     logger.info(f"Searching knowledge base for term: {term} (category={doc_category})")
                     result = doc_search_tool.run(term, doc_category=doc_category)
                     if result:
-                        clarified_terms.append({
-                            "term": term,
-                            "meaning": result
-                        })
                         logger.info(f"Found clarification for '{term}'")
+                        return {"term": term, "meaning": result}
                     else:
                         logger.info(f"No RAG result for '{term}'")
+                        return None
                 except Exception as e:
                     logger.warning(f"Failed to clarify '{term}': {e}")
+                    return None
+
+            # 使用线程池并发查询
+            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                futures = [executor.submit(search_term, term) for term in terms[:5]]
+                for future in concurrent.futures.as_completed(futures):
+                    result = future.result()
+                    if result:
+                        clarified_terms.append(result)
 
         except Exception as e:
             logger.error(f"Terminology clarification error: {e}")
 
-        logger.info(f"Clarified {len(clarified_terms)} terms")
+        logger.info(f"Clarified {len(clarified_terms)} terms (concurrent)")
 
         return {
             "clarified_terms": clarified_terms,
