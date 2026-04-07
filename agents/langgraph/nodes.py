@@ -3,6 +3,7 @@
 import logging
 import time
 import re
+import hashlib
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 from langchain_core.language_models import BaseLLM
@@ -14,6 +15,486 @@ from .state import AgentState, ExecutionStep
 from agents.services.observation_masking import ObservationMasker
 
 logger = logging.getLogger(__name__)
+
+
+# ============ 表元数据配置（用于智能表选择）============
+
+TABLE_METADATA = {
+    "vehicle_info": {
+        "description": "车辆基本信息表，存储车辆的静态属性",
+        "keywords": ["车辆", "车型", "品牌", "注册日期", "VIN", "能源类型", "燃油", "电动", "混动"],
+        "embedding": None,
+    },
+    "vehicle_workload": {
+        "description": "车辆工况数据表，包含实时行驶工况数据、能耗、燃油消耗、速度、里程等动态数据",
+        "keywords": ["能耗", "耗电", "耗油", "耗能", "电耗", "速度", "里程", "工况", "行驶", "工作时间", "加速", "减速", "功耗", "电量", "油耗"],
+        "embedding": None,
+    },
+    "sensor_data": {
+        "description": "传感器数据表，实时传感器数据包括座椅传感器、温度、湿度、GPS信号强度等信息",
+        "keywords": ["座椅", "日活", "日活率", "活跃", "活活率", "温度", "湿度", "GPS", "信号强度", "传感器", "占用", "传感器激活", "座椅激活"],
+        "embedding": None,
+    },
+    "vehicle_fault": {
+        "description": "车辆故障记录表，记录车辆的故障信息包括故障码、故障类型、故障严重程度和诊断信息",
+        "keywords": ["故障", "失效", "失效率", "错误", "异常", "故障码", "故障类型", "故障率", "诊断", "故障发生", "故障统计", "异常检测"],
+        "embedding": None,
+    }
+}
+
+# ============ 字段元数据配置（用于智能字段选择）============
+
+FIELD_METADATA = {
+    "vehicle_info": {
+        "vehicle_id": {
+            "description": "车辆唯一标识符",
+            "type": "identifier",
+            "keywords": ["车辆ID", "标识", "编号"],
+        },
+        "vehicle_name": {
+            "description": "车辆名称，如北京EU5、特斯拉Model 3等",
+            "type": "categorical",
+            "keywords": ["车辆名称", "车型名称", "型号"],
+        },
+        "fuel_type": {
+            "description": "能源类型：electric电动、hybrid混动、fuel燃油",
+            "type": "categorical",
+            "keywords": ["能源类型", "燃油", "电动", "混动", "新能源"],
+        },
+        "model": {
+            "description": "年份型号，如2024、2023、2022",
+            "type": "categorical",
+            "keywords": ["型号", "年份", "年代"],
+        },
+    },
+    "vehicle_workload": {
+        "vehicle_id": {
+            "description": "关联的车辆ID",
+            "type": "identifier",
+            "keywords": ["车辆ID", "关联"],
+        },
+        "date": {
+            "description": "工况记录日期，格式YYYY-MM-DD",
+            "type": "temporal",
+            "keywords": ["日期", "时间", "日子"],
+        },
+        "distance": {
+            "description": "行驶里程，单位km",
+            "type": "numeric",
+            "keywords": ["里程", "距离", "公里", "行驶距离"],
+        },
+        "power_consumption": {
+            "description": "电能消耗，单位kWh（新能源车）",
+            "type": "numeric",
+            "keywords": ["能耗", "耗电", "电耗", "电量消耗", "功耗"],
+        },
+        "fuel_consumption": {
+            "description": "燃油消耗，单位L（燃油车）",
+            "type": "numeric",
+            "keywords": ["油耗", "燃油消耗", "汽油消耗"],
+        },
+        "avg_speed": {
+            "description": "平均速度，单位km/h",
+            "type": "numeric",
+            "keywords": ["平均速度", "速度", "平均"],
+        },
+        "max_speed": {
+            "description": "最高速度，单位km/h",
+            "type": "numeric",
+            "keywords": ["最高速度", "最快", "最大速度"],
+        },
+        "idle_time": {
+            "description": "怠速时间，单位分钟",
+            "type": "numeric",
+            "keywords": ["怠速", "停止时间", "待命"],
+        },
+    },
+    "sensor_data": {
+        "vehicle_id": {
+            "description": "关联的车辆ID",
+            "type": "identifier",
+            "keywords": ["车辆ID"],
+        },
+        "date": {
+            "description": "传感器数据记录日期",
+            "type": "temporal",
+            "keywords": ["日期", "时间"],
+        },
+        "seat_sensor_active": {
+            "description": "座椅传感器激活状态：1=激活/有人、0=未激活/无人",
+            "type": "binary",
+            "keywords": ["座椅", "日活", "日活率", "激活", "活跃", "占用", "有人"],
+        },
+        "temperature": {
+            "description": "车内温度，单位℃",
+            "type": "numeric",
+            "keywords": ["温度", "热度", "冷热", "摄氏度"],
+        },
+        "humidity": {
+            "description": "车内湿度，百分比%",
+            "type": "numeric",
+            "keywords": ["湿度", "潮湿", "干燥"],
+        },
+        "gps_signal_strength": {
+            "description": "GPS信号强度，单位dBm",
+            "type": "numeric",
+            "keywords": ["GPS", "信号强度", "信号", "位置"],
+        },
+    },
+    "vehicle_fault": {
+        "vehicle_id": {
+            "description": "关联的车辆ID",
+            "type": "identifier",
+            "keywords": ["车辆ID"],
+        },
+        "date": {
+            "description": "故障发生日期",
+            "type": "temporal",
+            "keywords": ["日期", "时间"],
+        },
+        "fault_code": {
+            "description": "OBD故障代码，如P0300、P0401等",
+            "type": "categorical",
+            "keywords": ["故障码", "代码", "错误码"],
+        },
+        "fault_type": {
+            "description": "故障类型，如engine_fault、sensor_fault、battery_fault等",
+            "type": "categorical",
+            "keywords": ["故障类型", "类型", "类别"],
+        },
+        "fault_severity": {
+            "description": "故障严重程度：low/medium/high",
+            "type": "categorical",
+            "keywords": ["严重程度", "严重性", "等级"],
+        },
+        "fault_count": {
+            "description": "该故障的发生次数",
+            "type": "numeric",
+            "keywords": ["次数", "数量", "统计", "失效率"],
+        },
+    }
+}
+
+
+class OptimizedTableSelector:
+    """基于向量相似度的智能表选择器 - 快速、准确、无需LLM调用"""
+
+    def __init__(self):
+        """初始化表选择器 - 第一次调用时初始化embedding模型"""
+        self.embeddings_model = None
+        self.table_metadata = TABLE_METADATA
+        self.query_cache = {}  # 缓存查询结果
+        self._initialized = False
+
+    def _ensure_initialized(self):
+        """延迟初始化embedding模型（第一次调用时）"""
+        if self._initialized:
+            return
+
+        try:
+            from sentence_transformers import SentenceTransformer
+            logger.info("Initializing sentence transformer for table selection...")
+            self.embeddings_model = SentenceTransformer('all-MiniLM-L6-v2')
+
+            # 预计算所有表的embedding
+            for table_name, meta in self.table_metadata.items():
+                text = f"{meta['description']} {' '.join(meta['keywords'])}"
+                meta['embedding'] = self.embeddings_model.encode(text)
+                logger.info(f"✓ Precomputed embedding for table: {table_name}")
+
+            self._initialized = True
+            logger.info("✓ Table selector initialized successfully")
+        except ImportError:
+            logger.warning("sentence-transformers not installed, falling back to keyword matching")
+            self._initialized = True
+
+    def select_tables(self, user_input: str, clarified_terms: List[Dict]) -> List[str]:
+        """选择相关的表 - 向量相似度方法"""
+
+        self._ensure_initialized()
+
+        # 检查缓存
+        cache_key = self._hash_query(user_input + str(clarified_terms))
+        if cache_key in self.query_cache:
+            logger.info("🎯 Cache hit for table selection")
+            return self.query_cache[cache_key]
+
+        # 如果没有embedding模型，降级到关键字匹配
+        if not self.embeddings_model:
+            logger.warning("⚠️ Using fallback keyword matching")
+            return self._keyword_select(user_input, clarified_terms)
+
+        try:
+            # 拼接查询文本
+            query_text = user_input + " " + " ".join(
+                f"{t['term']} {t['meaning']}"
+                for t in clarified_terms
+            )
+
+            # 计算query embedding
+            from sklearn.metrics.pairwise import cosine_similarity
+            query_embedding = self.embeddings_model.encode(query_text)
+
+            # 计算与所有表的相似度
+            similarities = {}
+            for table_name, meta in self.table_metadata.items():
+                if meta['embedding'] is None:
+                    continue
+                sim = cosine_similarity(
+                    [query_embedding],
+                    [meta['embedding']]
+                )[0][0]
+                similarities[table_name] = sim
+
+            logger.info(f"📊 Table similarities: {similarities}")
+
+            # 选择相似度 > 0.3 的表（中文embedding模型相似度普遍较低）
+            selected_tables = [
+                table for table, sim in similarities.items()
+                if sim > 0.3
+            ]
+
+            # 如果没有结果，或者结果只有一个但置信度低，尝试关键字匹配
+            if not selected_tables:
+                logger.warning("⚠️ No table with similarity > 0.3, trying keyword fallback")
+                selected_tables = self._keyword_select(user_input, clarified_terms)
+                # 但只返回最相关的1-2个表，避免返回所有表
+                if len(selected_tables) > 2:
+                    # 按相似度排序
+                    sorted_tables = sorted(
+                        selected_tables,
+                        key=lambda t: similarities.get(t, 0),
+                        reverse=True
+                    )
+                    selected_tables = sorted_tables[:2]
+            elif len(selected_tables) == 1:
+                best_score = similarities[selected_tables[0]]
+                if best_score < 0.4:
+                    # 置信度不够，用关键字补充
+                    logger.info(f"Low confidence ({best_score:.3f}), supplementing with keyword matching")
+                    keyword_selected = self._keyword_select(user_input, clarified_terms)
+                    # 合并结果，但限制到3个表
+                    combined = list(set(selected_tables + keyword_selected))
+                    selected_tables = combined[:3]
+
+            logger.info(f"✅ Selected tables: {selected_tables}")
+
+            # 缓存结果
+            self.query_cache[cache_key] = selected_tables
+
+            return selected_tables
+
+        except Exception as e:
+            logger.error(f"Vector selection error: {e}, falling back to keyword matching")
+            return self._keyword_select(user_input, clarified_terms)
+
+    def _keyword_select(self, user_input: str, clarified_terms: List[Dict]) -> List[str]:
+        """关键字备选方案"""
+        keywords = user_input.lower()
+        for term_info in clarified_terms:
+            keywords += " " + term_info.get('term', '').lower()
+            keywords += " " + term_info.get('meaning', '').lower()
+
+        selected = []
+        for table_name, meta in self.table_metadata.items():
+            # 检查表的关键词是否在user输入中
+            if any(kw.lower() in keywords for kw in meta['keywords']):
+                selected.append(table_name)
+
+        # 如果没有通过关键字匹配到，返回所有表（让LLM决策）
+        return selected if selected else list(self.table_metadata.keys())
+
+    def _hash_query(self, query: str) -> str:
+        """生成查询的哈希key用于缓存"""
+        return hashlib.md5(query.encode()).hexdigest()
+
+    def clear_cache(self):
+        """清空缓存"""
+        self.query_cache.clear()
+        logger.info("Table selector cache cleared")
+
+
+# 全局单例
+_table_selector = None
+
+def get_table_selector():
+    """获取全局表选择器单例"""
+    global _table_selector
+    if _table_selector is None:
+        _table_selector = OptimizedTableSelector()
+    return _table_selector
+
+
+# ============ 字段选择器（基于向量相似度）============
+
+class OptimizedFieldSelector:
+    """基于向量相似度的智能字段选择器 - 减少不必要的字段采样"""
+
+    def __init__(self):
+        """初始化字段选择器"""
+        self.embeddings_model = None
+        self.field_metadata = FIELD_METADATA
+        self.field_embeddings = {}  # {table: {field: embedding}}
+        self.query_cache = {}
+        self._initialized = False
+
+    def _ensure_initialized(self):
+        """延迟初始化embedding模型"""
+        if self._initialized:
+            return
+
+        try:
+            from sentence_transformers import SentenceTransformer
+            logger.info("Initializing sentence transformer for field selection...")
+            self.embeddings_model = SentenceTransformer('all-MiniLM-L6-v2')
+
+            # 预计算所有字段的embedding
+            for table_name, fields in self.field_metadata.items():
+                self.field_embeddings[table_name] = {}
+                for field_name, field_info in fields.items():
+                    text = f"{field_info['description']} {' '.join(field_info['keywords'])}"
+                    self.field_embeddings[table_name][field_name] = self.embeddings_model.encode(text)
+                    logger.debug(f"✓ Precomputed embedding for {table_name}.{field_name}")
+
+            self._initialized = True
+            logger.info("✓ Field selector initialized successfully")
+        except ImportError:
+            logger.warning("sentence-transformers not installed, falling back to type-based selection")
+            self._initialized = True
+
+    def select_fields(self, table: str, user_input: str, clarified_terms: List[Dict], top_k: int = 3) -> List[str]:
+        """为指定表选择相关字段"""
+
+        self._ensure_initialized()
+
+        if table not in self.field_metadata:
+            logger.warning(f"Table {table} not in FIELD_METADATA, returning all fields")
+            return list(self.field_metadata.get(table, {}).keys())
+
+        # 检查缓存
+        cache_key = self._hash_query(f"{table}|{user_input}|{str(clarified_terms)}|{top_k}")
+        if cache_key in self.query_cache:
+            logger.info(f"🎯 Cache hit for field selection in {table}")
+            return self.query_cache[cache_key]
+
+        # 如果没有embedding模型，使用类型-优先级降级
+        if not self.embeddings_model:
+            logger.warning("⚠️ Using fallback type-based field selection")
+            return self._type_based_select(table, user_input, clarified_terms, top_k)
+
+        try:
+            # 拼接查询文本
+            query_text = user_input + " " + " ".join(
+                f"{t['term']} {t['meaning']}"
+                for t in clarified_terms
+            )
+
+            from sklearn.metrics.pairwise import cosine_similarity
+            query_embedding = self.embeddings_model.encode(query_text)
+
+            # 计算与表中所有字段的相似度
+            similarities = {}
+            for field_name in self.field_metadata[table].keys():
+                field_embedding = self.field_embeddings[table][field_name]
+                sim = cosine_similarity([query_embedding], [field_embedding])[0][0]
+                similarities[field_name] = sim
+
+            logger.debug(f"📊 Field similarities for {table}: {similarities}")
+
+            # 选择相似度 > 0.25 的字段
+            selected_fields = [
+                field for field, sim in similarities.items()
+                if sim > 0.25
+            ]
+
+            # 如果没有结果，选择置信度最高的top_k字段
+            if not selected_fields:
+                logger.warning(f"⚠️ No field with similarity > 0.25 in {table}, using top-{top_k} by score")
+                sorted_fields = sorted(
+                    similarities.items(),
+                    key=lambda x: x[1],
+                    reverse=True
+                )
+                selected_fields = [field for field, _ in sorted_fields[:top_k]]
+
+            # 限制字段数量（避免过度采样）
+            if len(selected_fields) > top_k:
+                sorted_fields = sorted(
+                    ((f, similarities[f]) for f in selected_fields),
+                    key=lambda x: x[1],
+                    reverse=True
+                )
+                selected_fields = [field for field, _ in sorted_fields[:top_k]]
+
+            logger.info(f"✅ Selected fields for {table}: {selected_fields}")
+
+            # 缓存结果
+            self.query_cache[cache_key] = selected_fields
+
+            return selected_fields
+
+        except Exception as e:
+            logger.error(f"Vector field selection error: {e}, falling back to type-based selection")
+            return self._type_based_select(table, user_input, clarified_terms, top_k)
+
+    def _type_based_select(self, table: str, user_input: str, clarified_terms: List[Dict], top_k: int) -> List[str]:
+        """基于字段类型的备选方案 - 优先选择标识符和与查询相关的字段"""
+        fields = self.field_metadata[table]
+        user_text = (user_input + " " + " ".join(f"{t['term']} {t['meaning']}" for t in clarified_terms)).lower()
+
+        # 第一优先级：标识符字段（总是需要）
+        priority_fields = []
+        for field_name, field_info in fields.items():
+            if field_info.get('type') == 'identifier':
+                priority_fields.append(field_name)
+
+        # 第二优先级：关键词匹配的字段
+        keyword_matches = []
+        for field_name, field_info in fields.items():
+            if field_name not in priority_fields:
+                if any(kw.lower() in user_text for kw in field_info.get('keywords', [])):
+                    keyword_matches.append(field_name)
+
+        # 第三优先级：时间字段（通常需要）
+        temporal_fields = []
+        for field_name, field_info in fields.items():
+            if field_name not in priority_fields and field_name not in keyword_matches:
+                if field_info.get('type') == 'temporal':
+                    temporal_fields.append(field_name)
+
+        # 组合结果
+        selected = priority_fields + keyword_matches + temporal_fields
+
+        # 如果还是不够，添加其他字段
+        if len(selected) < top_k:
+            other_fields = [f for f in fields.keys() if f not in selected]
+            selected.extend(other_fields[:top_k - len(selected)])
+
+        # 限制到top_k
+        selected = selected[:top_k]
+
+        logger.info(f"Type-based field selection for {table}: {selected}")
+        return selected
+
+    def _hash_query(self, query: str) -> str:
+        """生成查询的哈希key用于缓存"""
+        return hashlib.md5(query.encode()).hexdigest()
+
+    def clear_cache(self):
+        """清空缓存"""
+        self.query_cache.clear()
+        logger.info("Field selector cache cleared")
+
+
+# 全局单例
+_field_selector = None
+
+def get_field_selector():
+    """获取全局字段选择器单例"""
+    global _field_selector
+    if _field_selector is None:
+        _field_selector = OptimizedFieldSelector()
+    return _field_selector
 
 
 # ============ 重试策略配置 ============
@@ -232,7 +713,7 @@ Use the available tools if needed to help answer the question."""
         }
 
     def schema_discovery_node(self, state: AgentState) -> Dict[str, Any]:
-        """架构发现节点 - 识别相关的表和字段"""
+        """架构发现节点 - 使用向量相似度选择相关的表和字段"""
         logger.info("Discovering relevant tables and fields")
 
         # 获取 schema_query 工具
@@ -242,36 +723,34 @@ Use the available tools if needed to help answer the question."""
             return {"relevant_tables": [], "relevant_fields": {}}
 
         try:
-            # 首先获取所有表名
-            tables_result = schema_tool.run("tables")
-
-            relevant_tables = []
-            relevant_fields = {}
-
-            # 解析表名结果（格式：可用的表:\n- table1\n- table2）
-            all_tables = []
-            if tables_result:
-                # 提取 "- " 开头的行
-                for line in tables_result.split('\n'):
-                    line = line.strip()
-                    if line.startswith('- '):
-                        table_name = line[2:].strip()
-                        if table_name:
-                            all_tables.append(table_name)
-
-            logger.info(f"Available tables from schema_query: {all_tables}")
-
-            # 从输入和澄清的术语中匹配相关表
+            # 获取澄清的术语
             clarified_terms = state.get('clarified_terms', [])
-            keywords = state['user_input'].lower()
-            for term_info in clarified_terms:
-                keywords += " " + term_info.get('term', '').lower()
 
-            for table in all_tables:
-                if table.lower() in keywords:
-                    relevant_tables.append(table)
+            # ========== 改进：使用向量相似度选择表 ==========
+            table_selector = get_table_selector()
+            relevant_tables = table_selector.select_tables(
+                state['user_input'],
+                clarified_terms
+            )
+
+            logger.info(f"✅ Selected tables using vector similarity: {relevant_tables}")
+
+            # 如果没有选到表，降级获取所有表并用关键字匹配
+            if not relevant_tables:
+                logger.warning("No tables selected by vector similarity, falling back to all tables")
+                tables_result = schema_tool.run("tables")
+                all_tables = []
+                if tables_result:
+                    for line in tables_result.split('\n'):
+                        line = line.strip()
+                        if line.startswith('- '):
+                            table_name = line[2:].strip()
+                            if table_name:
+                                all_tables.append(table_name)
+                relevant_tables = all_tables if all_tables else []
 
             # 对于每个相关的表，获取其字段信息
+            relevant_fields = {}
             for table in relevant_tables:
                 try:
                     fields_result = schema_tool.run(table)
@@ -285,11 +764,11 @@ Use the available tools if needed to help answer the question."""
                             if field_part:
                                 fields.append(field_part)
                     relevant_fields[table] = fields
-                    logger.info(f"Got {len(fields)} fields from table '{table}': {fields}")
+                    logger.info(f"✓ Got {len(fields)} fields from table '{table}': {fields}")
                 except Exception as e:
                     logger.warning(f"Failed to get fields for {table}: {e}")
 
-            logger.info(f"Discovered tables: {relevant_tables}, fields: {relevant_fields}")
+            logger.info(f"✅ Discovered tables: {relevant_tables}, fields count: {sum(len(f) for f in relevant_fields.values())}")
 
             return {
                 "relevant_tables": relevant_tables,
@@ -301,8 +780,8 @@ Use the available tools if needed to help answer the question."""
             return {"relevant_tables": [], "relevant_fields": {}}
 
     def field_probing_node(self, state: AgentState) -> Dict[str, Any]:
-        """字段探测节点 - 采样字段值，参考历史访问偏好"""
-        logger.info("Probing field values with memory context")
+        """字段探测节点 - 智能选择字段后采样其值，参考历史访问偏好"""
+        logger.info("Probing field values with intelligent field selection")
 
         field_samples = {}
         sql_tool = self.tool_map.get("sql_query")
@@ -312,26 +791,55 @@ Use the available tools if needed to help answer the question."""
             return {"field_samples": field_samples}
 
         try:
-            # 获取历史记忆，用于字段优先级排序
+            # 获取历史记忆和澄清的术语
             memory_context = state.get("memory_context", "") or ""
-            memory_hint = f"用户历史倾向：{memory_context[:200]}" if memory_context else "首次查询"
+            clarified_terms = state.get("clarified_terms", [])
+            user_input = state.get("user_input", "")
 
+            memory_hint = f"用户历史倾向：{memory_context[:200]}" if memory_context else "首次查询"
             logger.info(f"Field probing hint from memory: {memory_hint}")
 
-            # 对每个相关字段执行 SELECT DISTINCT LIMIT 10 探测
-            for table, fields in state.get("relevant_fields", {}).items():
-                for field in fields[:3]:  # 只探测前3个字段以节省时间
-                    try:
-                        # 构建探测SQL
-                        probe_sql = f"SELECT DISTINCT {field} FROM {table} LIMIT 10"
-                        logger.info(f"Probing: {probe_sql}")
+            # 获取字段选择器
+            field_selector = get_field_selector()
 
-                        result = sql_tool.run(probe_sql)
-                        field_samples[f"{table}.{field}"] = result
+            # 对每个相关表执行智能字段选择
+            for table in state.get("relevant_tables", []):
+                try:
+                    # 使用向量相似度选择最相关的字段（最多3个）
+                    selected_fields = field_selector.select_fields(
+                        table=table,
+                        user_input=user_input,
+                        clarified_terms=clarified_terms,
+                        top_k=3
+                    )
 
-                    except Exception as e:
-                        logger.warning(f"Failed to probe {table}.{field}: {e}")
-                        # 继续探测其他字段
+                    logger.info(f"Selected {len(selected_fields)} fields from {table}: {selected_fields}")
+
+                    # 采样选中的字段
+                    for field in selected_fields:
+                        try:
+                            # 构建探测SQL
+                            probe_sql = f"SELECT DISTINCT {field} FROM {table} LIMIT 10"
+                            logger.info(f"Probing: {probe_sql}")
+
+                            result = sql_tool.run(probe_sql)
+                            field_samples[f"{table}.{field}"] = result
+
+                        except Exception as e:
+                            logger.warning(f"Failed to probe {table}.{field}: {e}")
+                            # 继续探测其他字段
+
+                except Exception as e:
+                    logger.error(f"Field selection error for {table}: {e}")
+                    # 降级：如果字段选择失败，采样该表的所有字段
+                    if table in FIELD_METADATA:
+                        for field in list(FIELD_METADATA[table].keys())[:3]:
+                            try:
+                                probe_sql = f"SELECT DISTINCT {field} FROM {table} LIMIT 10"
+                                result = sql_tool.run(probe_sql)
+                                field_samples[f"{table}.{field}"] = result
+                            except Exception as e2:
+                                logger.warning(f"Fallback probe failed for {table}.{field}: {e2}")
 
             logger.info(f"Collected {len(field_samples)} field samples")
 
