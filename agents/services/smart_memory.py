@@ -197,7 +197,7 @@ class SmartMemoryManager:
             self._trim_by_tokens()
 
     def _trim_by_count(self):
-        """按消息数修剪 - 压缩而非删除"""
+        """按消息数修剪 - Anchored Iterative压缩（增量压缩）"""
         # 计算每条消息的总分 = 内容重要性 * 新鲜度
         now = datetime.now()
         for msg in self.messages:
@@ -212,22 +212,34 @@ class SmartMemoryManager:
         to_compress = len(sorted_messages) - target_count
 
         if to_compress > 0:
-            # 分离要压缩的消息和要保留的消息
+            # 分离要压缩的消息、已有压缩和要保留的消息
             messages_to_compress = sorted_messages[:to_compress]
             messages_to_keep = sorted_messages[to_compress:]
 
-            # 压缩消息
-            compressed = self._compress_messages(messages_to_compress)
+            # 查找是否已有压缩摘要（增量压缩）
+            existing_compressed = None
+            messages_to_keep_filtered = []
+            for msg in messages_to_keep:
+                if msg.get("type") == "compressed_summary":
+                    existing_compressed = msg
+                else:
+                    messages_to_keep_filtered.append(msg)
+
+            # 压缩消息（传入已有压缩用于增量合并）
+            compressed = self._compress_messages(
+                messages_to_compress,
+                existing_compressed=existing_compressed
+            )
 
             # 重新组合
-            self.messages = messages_to_keep
+            self.messages = messages_to_keep_filtered
             if compressed:
                 self.messages.append(compressed)
 
-            logger.info(f"按数量修剪：压缩了{to_compress}条消息成1条压缩记录")
+            logger.info(f"按数量修剪：压缩了{to_compress}条消息")
 
     def _trim_by_tokens(self):
-        """按token数修剪 - 压缩而非删除"""
+        """按token数修剪 - Anchored Iterative压缩（增量压缩）"""
         now = datetime.now()
         for msg in self.messages:
             recency_score = MemoryImportance.score_by_recency(msg["timestamp"], now)
@@ -243,16 +255,26 @@ class SmartMemoryManager:
         for i, msg in enumerate(sorted_messages):
             if current_tokens <= self.max_tokens * 0.8:  # 保持在80%以下
                 break
-            current_tokens -= self._estimate_message_tokens(msg["content"])
+            current_tokens -= self._estimate_message_tokens(msg.get("content", ""))
             messages_to_compress.append(msg)
             removed += 1
 
         if removed > 0:
-            # 分离要压缩的消息和要保留的消息
-            remaining = [m for m in self.messages if m not in messages_to_compress]
+            # 分离要压缩的消息、已有压缩和要保留的消息
+            remaining = []
+            existing_compressed = None
+            for m in self.messages:
+                if m not in messages_to_compress:
+                    if m.get("type") == "compressed_summary":
+                        existing_compressed = m
+                    else:
+                        remaining.append(m)
 
-            # 压缩消息
-            compressed = self._compress_messages(messages_to_compress)
+            # 压缩消息（传入已有压缩用于增量合并）
+            compressed = self._compress_messages(
+                messages_to_compress,
+                existing_compressed=existing_compressed
+            )
 
             # 重新组合
             self.messages = remaining
@@ -263,77 +285,156 @@ class SmartMemoryManager:
                 f"按token数修剪：压缩了{removed}条消息，当前token数：{self._estimate_tokens()}"
             )
 
-    def _compress_messages(self, messages: list) -> Optional[dict]:
+    def _compress_messages(
+        self, messages: list, existing_compressed: Optional[dict] = None
+    ) -> Optional[dict]:
         """
-        使用LLM压缩一组消息（使用阿里通义千问）
+        Anchored Iterative压缩 - 使用阿里通义千问
+
+        支持增量压缩：如果已有压缩摘要，则只压缩新消息并合并到已有摘要
+        否则执行完全压缩
 
         Args:
             messages: 要压缩的消息列表
+            existing_compressed: 已有的压缩摘要（用于增量压缩）
 
         Returns:
-            压缩后的消息（包含压缩标志和原始消息数）
+            压缩后的消息（结构化 sections 格式）
         """
         if not messages:
-            return None
+            return existing_compressed
 
         try:
             # 构建原始对话文本
             conversation_text = "\n".join([
-                f"{'用户' if m.get('type') == 'human' else '助手'}: {m.get('content')}"
+                f"{'用户' if m.get('type') == 'human' else '助手'}: {m.get('content', '')}"
                 for m in messages
             ])
 
             # 使用项目的LLMService进行压缩
             from qa.services.llm_service import LLMService
 
-            llm_service = LLMService(model_name="qwen-turbo")  # 压缩用快速模型
+            llm_service = LLMService(model_name="qwen-turbo")
 
-            compression_prompt = f"""请将以下对话历史压缩成一个简洁的摘要，保留关键信息：
-- 用户的主要问题/需求
-- 重要的数据查询或结果
-- 关键的技术决策
-- 任何错误或问题的解决方案
+            # 判断是增量压缩还是完全压缩
+            if existing_compressed and existing_compressed.get("type") == "compressed_summary":
+                # 增量压缩：基于已有摘要进行更新
+                prev_summary = existing_compressed.get("content", {})
+                prev_cycle = existing_compressed.get("compression_cycle", 0)
+
+                compression_prompt = f"""基于之前的压缩摘要，使用新的对话进行增量更新：
+
+【之前的摘要】
+- 用户意图: {prev_summary.get('session_intent', '')}
+- 关键决策: {', '.join(prev_summary.get('key_decisions', []))}
+- 查询结果: {prev_summary.get('query_results', '')}
+- 问题解决: {', '.join(prev_summary.get('errors_resolved', []))}
+- 当前状态: {prev_summary.get('current_state', '')}
+
+【新的对话】
+{conversation_text}
+
+请基于新对话更新上述摘要。仅提取新增的关键信息，保留已有的摘要内容。
+输出格式（JSON）：
+{{
+  "session_intent": "...",
+  "key_decisions": ["..."],
+  "query_results": "...",
+  "errors_resolved": ["..."],
+  "current_state": "..."
+}}"""
+            else:
+                # 完全压缩：从零开始
+                compression_prompt = f"""请将以下对话压缩成结构化摘要，提取关键信息：
 
 对话内容：
 {conversation_text}
 
-请输出一个简洁的摘要（不超过100字）："""
+提取以下信息：
+1. 用户意图: 用户想要做什么
+2. 关键决策: 做出了哪些技术决策
+3. 查询结果: 重要的数据/查询结果
+4. 问题解决: 解决了哪些问题/错误
+5. 当前状态: 当前系统的状态
+
+输出格式（JSON）：
+{{
+  "session_intent": "...",
+  "key_decisions": ["..."],
+  "query_results": "...",
+  "errors_resolved": ["..."],
+  "current_state": "..."
+}}"""
 
             response = llm_service.generate_response(
                 query=compression_prompt,
-                context="",  # 压缩不需要外部上下文
+                context="",
                 conversation_history=None
             )
 
             if response.get("error"):
                 logger.warning(f"LLM压缩失败: {response.get('answer')}")
-                return None
+                return existing_compressed  # 降级：返回已有压缩
 
-            compressed_content = response.get("answer", "")
+            answer = response.get("answer", "")
 
-            # 获取最早和最晚的时间戳
+            # 尝试解析JSON
+            try:
+                import json
+                json_start = answer.find("{")
+                json_end = answer.rfind("}") + 1
+                if json_start >= 0 and json_end > json_start:
+                    json_str = answer[json_start:json_end]
+                    compressed_content = json.loads(json_str)
+                else:
+                    # 降级：解析失败则返回已有压缩
+                    logger.warning("LLM未返回JSON格式，降级处理")
+                    return existing_compressed
+            except json.JSONDecodeError:
+                logger.warning("JSON解析失败，降级处理")
+                return existing_compressed
+
+            # 获取时间戳和重要性信息
             timestamps = [m.get("timestamp") for m in messages if m.get("timestamp")]
+            if not timestamps:
+                timestamps = [existing_compressed.get("compressed_at")] if existing_compressed else []
+
             earliest_time = min(timestamps) if timestamps else datetime.now()
             latest_time = max(timestamps) if timestamps else datetime.now()
 
+            # 计算平均重要性和新鲜度
+            avg_importance = sum(m.get("importance", 0.3) for m in messages) / len(messages) if messages else 0.5
+            avg_recency = sum(
+                MemoryImportance.score_by_recency(m.get("timestamp", datetime.now()), latest_time)
+                for m in messages
+            ) / len(messages) if messages else 0.5
+
             # 创建压缩记录
+            compression_cycle = (existing_compressed.get("compression_cycle", 0) + 1) if existing_compressed else 1
+            original_count = len(messages) + (existing_compressed.get("original_count", 0) if existing_compressed else 0)
+
             compressed_msg = {
-                "content": compressed_content,
-                "type": "compressed_summary",  # 特殊类型标记为压缩记录
-                "timestamp": latest_time,  # 使用最新的时间戳
-                "importance": 0.5,  # 压缩后的消息重要性相对较低
-                "original_count": len(messages),
+                "content": compressed_content,  # 结构化 sections
+                "type": "compressed_summary",
+                "timestamp": latest_time,  # 最新时间戳
+                "importance": avg_importance,  # 被压缩消息的平均重要性
+                "recency": avg_recency,  # 被压缩消息的平均新鲜度
+                "original_count": original_count,  # 总的原始消息数
+                "compression_cycle": compression_cycle,  # 压缩循环次数
                 "compressed_from": earliest_time,
                 "compressed_at": datetime.now(),
             }
 
-            logger.info(f"✓ 已压缩{len(messages)}条消息，摘要长度：{len(compressed_content)}")
+            logger.info(
+                f"✓ 压缩完成 [cycle {compression_cycle}] - "
+                f"原始消息: {len(messages)}, 总消息: {original_count}, "
+                f"重要性: {avg_importance:.2f}, 新鲜度: {avg_recency:.2f}"
+            )
             return compressed_msg
 
         except Exception as e:
-            logger.error(f"LLM压缩失败: {e}，将降级为删除策略")
-            # 降级：压缩失败则删除
-            return None
+            logger.error(f"LLM压缩失败: {e}，将降级处理")
+            return existing_compressed  # 降级：返回已有压缩
 
 
     def _estimate_tokens(self) -> int:
@@ -427,16 +528,31 @@ class SmartMemoryManager:
         included_count = 0
 
         for msg in scored_messages[:top_k]:
-            # 标记压缩消息
+            # 处理压缩消息和普通消息
             if msg.get("type") == "compressed_summary":
                 role = "📦 压缩摘要"
-                original_info = f"(原{msg.get('original_count', '?')}条消息)"
+                summary_info = msg.get("content", {})
+
+                # 将结构化内容转换为文本
+                if isinstance(summary_info, dict):
+                    lines = [
+                        f"意图: {summary_info.get('session_intent', '')}",
+                        f"决策: {', '.join(summary_info.get('key_decisions', []))}",
+                        f"结果: {summary_info.get('query_results', '')}",
+                        f"解决: {', '.join(summary_info.get('errors_resolved', []))}",
+                        f"状态: {summary_info.get('current_state', '')}"
+                    ]
+                    content = " | ".join(lines)
+                else:
+                    content = str(summary_info)
+
+                original_info = f" (原{msg.get('original_count', '?')}条消息, cycle{msg.get('compression_cycle', 1)})"
             else:
                 role = "用户" if msg["type"] == "human" else "助手"
+                content = msg["content"]
                 original_info = ""
 
             # 计算当前消息的tokens
-            content = msg["content"]
             msg_tokens = self._estimate_message_tokens(f"{role}: {content}")
 
             # 如果加上这条消息会超过限制，进行截断
@@ -447,7 +563,7 @@ class SmartMemoryManager:
                 msg_tokens = self._estimate_message_tokens(f"{role}: {content}")
 
                 if total_tokens + msg_tokens <= max_context_tokens:
-                    context_lines.append(f"{role}: {content} {original_info}".strip())
+                    context_lines.append(f"{role}: {content}{original_info}".strip())
                     total_tokens += msg_tokens
                     included_count += 1
                 break  # 达到压缩限制
@@ -456,7 +572,7 @@ class SmartMemoryManager:
                 if len(content) > 300:
                     content = content[:300] + "..."
 
-                context_lines.append(f"{role}: {content} {original_info}".strip())
+                context_lines.append(f"{role}: {content}{original_info}".strip())
                 total_tokens += msg_tokens
                 included_count += 1
 
