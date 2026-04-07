@@ -70,40 +70,30 @@ class HybridSearch:
         vector_results: List[DocumentSearchResultOut]
     ) -> Dict[int, float]:
         """
-        PostgreSQL全文搜索（pg_search）- 替代手写BM25
+        PostgreSQL全文搜索（pg_search）
 
         Args:
             query: 查询文本
-            vector_results: 向量搜索结果（用于过滤候选）
+            vector_results: 向量搜索结果（用于融合，不用于过滤）
 
         Returns:
             {chunk_id: rank_score} 字典
         """
         try:
-            # 获取候选chunk的ID（从向量搜索结果中）
-            candidate_chunk_ids = [result.chunk_index for result in vector_results]
-
-            if not candidate_chunk_ids:
-                return {}
-
-            # 使用PostgreSQL全文搜索 + SearchRank排序
-            # SearchQuery支持websearch语法（与号、或号等）
+            # 使用PostgreSQL全文搜索
             search_query = SearchQuery(query, search_type='websearch')
 
-            # 在候选集合中进行全文搜索，使用SearchRank评分
-            pg_results = DocumentChunk.objects.filter(
-                id__in=candidate_chunk_ids
-            ).annotate(
+            # 直接全表扫描（数据量小，无需候选集限制）
+            pg_results = DocumentChunk.objects.annotate(
                 rank=SearchRank(SearchVector('content', config='chinese'), search_query)
             ).filter(
-                # @ 是 tsvector @@ tsquery 的Django ORM表示
                 content__search=search_query
             ).values('id', 'rank').order_by('-rank')
 
             # 转换为字典 {chunk_id: rank}
             result_dict = {result['id']: result['rank'] for result in pg_results}
 
-            logger.debug(f"PostgreSQL全文搜索: {len(pg_results)} 条结果, 查询词='{query}'")
+            logger.debug(f"PostgreSQL全文搜索: {len(pg_results)} 条结果")
             return result_dict
 
         except Exception as e:
