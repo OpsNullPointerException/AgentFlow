@@ -103,6 +103,8 @@ class QAService:
                 # 缓存未命中，从RAG服务获取
                 retrieval_result = self.rag_service.retrieve_relevant_documents(query)
                 relevant_docs = retrieval_result.documents  # 提取文档列表
+                # Cross-encoder 相关性过滤
+                relevant_docs = self.rag_service.filter_by_relevance(query, relevant_docs)
                 # 缓存结果
                 self._set_cached_retrieval(query, relevant_docs)
             else:
@@ -207,6 +209,9 @@ class QAService:
             # 6. 调用RAG系统检索相关文档（可能耗时）
             retrieval_result = self.rag_service.retrieve_relevant_documents(query)
             relevant_docs = retrieval_result.documents  # 提取文档列表
+
+            # Cross-encoder 相关性过滤
+            relevant_docs = self.rag_service.filter_by_relevance(query, relevant_docs)
 
             # 7. 格式化上下文
             context = self.rag_service.format_context_for_llm(relevant_docs, query)

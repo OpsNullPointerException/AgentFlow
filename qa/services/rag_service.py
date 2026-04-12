@@ -1,5 +1,5 @@
 import time
-from typing import Any, Optional, Dict, List
+from typing import Optional
 
 from loguru import logger
 
@@ -160,3 +160,39 @@ class RAGService:
             context += f"[文档{i + 1}：{title}]\n{content}\n\n"
 
         return context
+
+    def filter_by_relevance(
+        self,
+        query: str,
+        documents: list[DocumentSearchResultOut],
+        threshold: float = 0.3,
+    ) -> list[DocumentSearchResultOut]:
+        """
+        用 cross-encoder 评估文档相关性，过滤掉不相关的文档。
+
+        Args:
+            query: 用户查询
+            documents: 检索到的文档列表
+            threshold: 相关性分数阈值，低于此值的文档会被过滤
+
+        Returns:
+            过滤后的相关文档列表
+        """
+        if not documents:
+            return []
+
+        try:
+            # 用 cross-encoder 对文档打分
+            scored_docs = self.reranker_service._rerank_with_cross_encoder(query, documents)
+
+            # 按阈值过滤
+            filtered = [doc for doc in scored_docs if (doc.rerank_score or 0) >= threshold]
+            logger.info(
+                f"Relevance filter: {len(filtered)}/{len(documents)} docs kept "
+                f"(threshold={threshold}, query={query[:50]})"
+            )
+            return filtered
+
+        except Exception as e:
+            logger.warning(f"Cross-encoder filter failed, keeping all docs: {e}")
+            return documents

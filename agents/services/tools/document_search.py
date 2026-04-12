@@ -37,7 +37,7 @@ class DocumentSearchTool(BaseTool):
         doc_category: str = "user",
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> str:
-        """执行文档搜索（支持分类过滤）"""
+        """执行文档搜索（支持分类过滤 + 相关性评估）"""
         try:
             logger.info(f"Agent执行文档搜索: {query} (category={doc_category})")
 
@@ -48,8 +48,13 @@ class DocumentSearchTool(BaseTool):
             if not retrieval_result.documents:
                 return "未找到相关文档。"
 
+            # Cross-encoder 相关性过滤
+            documents = self.rag_service.filter_by_relevance(query, retrieval_result.documents)
+            if not documents:
+                return "未找到相关文档。"
+
             results = []
-            for i, doc in enumerate(retrieval_result.documents, 1):
+            for i, doc in enumerate(documents, 1):
                 result = f"文档 {i}:\n"
                 result += f"标题: {doc.title}\n"
                 result += f"内容: {doc.content[:500]}...\n"

@@ -639,47 +639,50 @@ User question: {state['user_input']}
 Use the available tools if needed to help answer the question."""
 
     def intent_detection_node(self, state: AgentState) -> Dict[str, Any]:
-        """意图识别节点 - 分类用户查询为 knowledge/data/hybrid"""
+        """意图识别节点 - LLM分类用户查询为 knowledge/data/hybrid/chitchat"""
         logger.info(f"Detecting intent for: {state['user_input']}")
 
-        # 先用启发式方法快速判断（性能优先）
-        user_input = state['user_input']
+        prompt = self._build_intent_detection_prompt(state)
+        try:
+            response = self.llm.predict(prompt).strip().lower()
+            if "chitchat" in response:
+                intent_type = "chitchat"
+            elif "knowledge" in response:
+                intent_type = "knowledge"
+            elif "hybrid" in response:
+                intent_type = "hybrid"
+            else:
+                intent_type = "data"
+        except Exception as e:
+            logger.error(f"LLM intent detection error: {e}")
+            intent_type = "data"  # 默认为数据查询
 
-        # 关键词定义
-        data_keywords = {"查询", "统计", "SELECT", "表", "字段", "数据库", "数据", "SQL", "昨天", "上周", "销售", "金额"}
-        knowledge_keywords = {"什么是", "定义", "含义", "解释", "术语", "代表"}
-
-        # 计算关键词匹配得分
-        data_score = sum(1 for kw in data_keywords if kw in user_input)
-        knowledge_score = sum(1 for kw in knowledge_keywords if kw in user_input)
-
-        # 启发式判断
-        if knowledge_score > 0 and data_score == 0:
-            intent_type = "knowledge"
-        elif data_score > knowledge_score:
-            intent_type = "data"
-        elif data_score > 0 and knowledge_score > 0:
-            intent_type = "hybrid"
-        else:
-            # 如果启发式判断不确定，用LLM + 历史记忆
-            logger.info("Heuristic detection uncertain, using LLM with memory context")
-            prompt = self._build_intent_detection_prompt(state)
-            try:
-                response = self.llm.predict(prompt).strip().lower()
-                if "knowledge" in response or "概念" in response or "定义" in response:
-                    intent_type = "knowledge"
-                elif "hybrid" in response or "混合" in response:
-                    intent_type = "hybrid"
-                else:
-                    intent_type = "data"
-            except Exception as e:
-                logger.error(f"LLM intent detection error: {e}")
-                intent_type = "data"  # 默认为数据查询
-
-        logger.info(f"Detected intent: {intent_type} (data_score={data_score}, knowledge_score={knowledge_score})")
+        logger.info(f"Detected intent: {intent_type}")
 
         return {
             "intent_type": intent_type,
+        }
+
+    def chitchat_node(self, state: AgentState) -> Dict[str, Any]:
+        """闲聊节点 - 友好回复并引导回业务场景"""
+        logger.info("Handling chitchat intent")
+
+        prompt = f"""你是一个智能业务助手。用户发来了一条闲聊消息，请简短友好地回复，并自然地引导用户回到你擅长的领域（数据查询和业务知识问答）。
+
+用户消息: {state['user_input']}
+
+要求：
+- 回复简洁，不超过2句话
+- 友好自然地引导回业务场景"""
+
+        try:
+            response = self.llm.predict(prompt).strip()
+        except Exception as e:
+            logger.error(f"Chitchat LLM error: {e}")
+            response = "你好！我是你的业务助手，可以帮你查询数据或解答业务知识问题，有什么需要的吗？"
+
+        return {
+            "final_answer": response,
         }
 
     def time_check_node(self, state: AgentState) -> Dict[str, Any]:
@@ -1378,12 +1381,13 @@ SQL生成要求：
         prompt = f"""根据用户查询和历史对话，分类查询类型（只返回一个词）：
 
 - knowledge: 纯知识问题（概念、术语、规则解释）
-- data: 数据查询问题（涉及数据库、SQL、统计）
-- hybrid: 既需要知识澄清又需要数据查询{memory_str}
+- data: 数据查询问题（涉及数据库、SQL、统计、查数据）
+- hybrid: 既需要知识澄清又需要数据查询
+- chitchat: 闲聊、问候、感谢、与业务无关的对话{memory_str}
 
 当前问题: {state['user_input']}
 
-返回: knowledge / data / hybrid"""
+返回: knowledge / data / hybrid / chitchat"""
         return prompt
 
     def _build_explanation_prompt(self, state: AgentState) -> str:

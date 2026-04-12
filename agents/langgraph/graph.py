@@ -9,39 +9,39 @@
                                │
                     ┌──────────▼───────────┐
                     │ intent_detection     │
-                    │ (分类query意图)      │
+                    │ (LLM分类query意图)    │
                     └──────────┬───────────┘
                                │
-                ┌──────────────┼──────────────┐
-                │              │              │
-                ▼              ▼              ▼
-         ┌──────────────┐ ┌──────────────┐ ┌──────────┐
-         │  knowledge   │ │     data     │ │  hybrid  │
-         │    path      │ │    path      │ │   path   │
-         └──────┬───────┘ └──────┬───────┘ └────┬─────┘
-                │                │              │
-    terminology │                │              │
-    clarification   time_check───┼──────────────┤
-                │                │              │
-                │         schema_discovery     │
-                │                │              │
-                │          field_probing        │
-                │                │              │
-                │            main_query         │
-                │                │              │
-                └────────┬───────┴──────┬───────┘
-                         │              │
-              result_explanation ◄──────┘
-                         │
-                    evaluate
-                         │
-         ┌───────────────┼───────────────┐
-         ▼               ▼               ▼
-    final_answer    final_answer    error_handler
-         │               │               │
-         └───────────────┼───────────────┘
-                         │
-                        END
+            ┌──────────────────┼──────────────────┐
+            │                  │                  │
+            ▼                  ▼                  ▼
+     ┌──────────────┐ ┌──────────────┐ ┌──────────┐ ┌──────────┐
+     │  knowledge   │ │     data     │ │  hybrid  │ │ chitchat │
+     │    path      │ │    path      │ │   path   │ │   path   │
+     └──────┬───────┘ └──────┬───────┘ └────┬─────┘ └────┬─────┘
+            │                │              │             │
+terminology │                │              │         chitchat_node
+clarification   time_check───┼──────────────┤             │
+            │                │              │             │
+            │         schema_discovery     │             │
+            │                │              │             │
+            │          field_probing        │             │
+            │                │              │             │
+            │            main_query         │             │
+            │                │              │             │
+            └────────┬───────┴──────┬───────┘             │
+                     │              │                     │
+          result_explanation ◄──────┘                     │
+                     │                                    │
+                evaluate                                  │
+                     │                                    │
+     ┌───────────────┼───────────────┐                    │
+     ▼               ▼               ▼                    │
+final_answer    final_answer    error_handler ◄───────────┘
+     │               │               │
+     └───────────────┼───────────────┘
+                     │
+                    END
 """
 
 from langgraph.graph import StateGraph, END
@@ -86,6 +86,7 @@ class AgentGraphBuilder:
         graph.add_node("evaluate", self.node_manager.evaluate_node)
         graph.add_node("final_answer", self.node_manager.final_answer_node)
         graph.add_node("error_handler", self.node_manager.error_handler_node)
+        graph.add_node("chitchat", self.node_manager.chitchat_node)
 
         # 定义边
         graph.add_edge("input_processing", "intent_detection")
@@ -103,6 +104,7 @@ class AgentGraphBuilder:
                 "knowledge": "result_explanation",     # 知识问题：术语澄清后直接解释结果
                 "data": "time_check",                   # 数据问题：术语澄清后继续查询数据
                 "hybrid": "time_check",                 # 混合问题：先澄清术语再查询数据
+                "chitchat": "chitchat",                 # 闲聊：友好回复并引导回业务
             }
         )
 
@@ -114,6 +116,9 @@ class AgentGraphBuilder:
 
         # 所有查询路径都进入结果解释和评测
         graph.add_edge("result_explanation", "evaluate")
+
+        # 闲聊路径直接到最终答案（不需要评测）
+        graph.add_edge("chitchat", "final_answer")
 
         # ✅ Phase 5: 新的条件路由 - 使用tools_condition检查tool_calls
         graph.add_conditional_edges(
@@ -179,8 +184,9 @@ class AgentGraphBuilder:
         logger.info(f"Routing after clarification: {intent}")
 
         if intent == "knowledge":
-            # 知识问题：澄清后直接解释，无需查询
             return "knowledge"
+        elif intent == "chitchat":
+            return "chitchat"
         else:
             # 数据问题或混合问题：继续查询数据
             return "data"

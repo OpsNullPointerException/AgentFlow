@@ -36,7 +36,7 @@ class AgentState(TypedDict):
     # ========== Group 3: 任务执行 (8字段) ==========
     # 生命周期：按pipeline填充（意图→中间→结果）
     # 结构：意图识别 → 知识路径 → 数据路径 → 查询结果
-    intent_type: Optional[str]  # "knowledge" / "data" / "hybrid"
+    intent_type: Optional[str]  # "knowledge" / "data" / "hybrid" / "chitchat"
     clarified_terms: List[Dict[str, str]]  # [{"term": "A", "meaning": "..."}]
     time_range: Optional[Dict[str, str]]  # {"start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD"}
     relevant_tables: List[str]
